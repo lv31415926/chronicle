@@ -1,0 +1,14 @@
+# 作者侧的一次性数据编辑脚本与它们的中间产物。
+#
+# 只排除、不删除：磁盘上照样能跑，但它们既不是站点的一部分，也不构成任何一道门——
+# 门禁链 100% 是 Node（clone 后 node tools/test-gates.mjs 必须能全绿），
+# 一旦把 .py 写进必跑清单，外部投稿人就复现不出来。
+tools/*.py
+tools/__pycache__/
+tools/report-*.md
+data/dup-plan.json
+
+# tools/related-cross.json 反过来必须提交：它是「哪条跨轨关联经谁授权」的台账，
+# related-cross.mjs 靠它拒绝重复补边，test-related-candidates.mjs 拿它当不变量的输入。
+
+.DS_Store

@@ -1,0 +1,80 @@
+/* river.css | 全屏「长河」梳理视图 */
+
+.river {
+  position: fixed; inset: 0; z-index: 38;
+  display: flex; flex-direction: column;
+  background: var(--bg); color: var(--ink);
+}
+body.river-open { overflow: hidden; }
+
+.rv-head {
+  flex: 0 0 auto; display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+  padding: 14px 22px 11px; border-bottom: 1px solid var(--rule);
+  background: var(--bg-panel);
+}
+.rv-head-l { min-width: 260px; }
+.rv-head h2 { font-family: var(--font-serif); font-size: 21px; margin: 0; letter-spacing: .04em; }
+.rv-stats { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-faint); margin-top: 3px; }
+.rv-stats b { color: var(--gold-text); font-size: 13px; }
+.rv-src { color: var(--ink-soft); }
+.rv-warn { color: var(--warn); }
+.rv-head-r { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.rv-chk { font-size: 11.5px; color: var(--ink-soft); display: flex; align-items: center; gap: 4px; }
+
+/* 目录条：定宽 chip，整条横向滚动；疏密看每节右侧的条数徽标 */
+.rv-toc {
+  flex: 0 0 auto; display: flex; gap: 2px; overflow-x: auto;
+  padding: 8px 22px; border-bottom: 1px solid var(--rule-soft); background: var(--bg-panel);
+}
+.rv-toc button {
+  flex: 0 0 auto;
+  border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--bg-elev);
+  color: var(--ink-soft); font-size: 10.5px; padding: 3px 7px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  white-space: nowrap;
+}
+.rv-toc button:hover { border-color: var(--gold); color: var(--ink); }
+.rv-toc button i { font-style: normal; color: var(--ink-faint); font-size: 9.5px; }
+
+.rv-body { flex: 1 1 auto; position: relative; overflow-y: auto; padding: 0 22px 90px; }
+.rv-none { padding: 60px 10px; text-align: center; color: var(--ink-faint); font-size: 13px; line-height: 1.9; }
+
+/* 通读要靠限宽：超宽屏上一行拉到 200 字就没有可读性可言 */
+.rv-sec { max-width: 940px; margin: 0 auto; padding-top: 26px; }
+.rv-sec h3 {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: baseline; gap: 10px;
+  font-family: var(--font-serif); font-size: 15px; font-weight: 600;
+  padding: 8px 0 7px; margin: 0 0 4px;
+  background: linear-gradient(180deg, var(--bg) 72%, transparent);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.rv-h-r { margin-left: auto; font-size: 10.5px; font-weight: 400; color: var(--ink-faint); font-family: var(--font-sans); }
+
+.rv-ul { list-style: none; margin: 0; padding: 0; }
+.rv-it {
+  display: grid; grid-template-columns: 62px 20px 1fr; gap: 0 8px; align-items: start;
+  padding: 9px 6px 9px 0; border-bottom: 1px dotted var(--rule-soft);
+}
+.rv-it:hover { background: var(--bg-hover); }
+.rv-y {
+  border: 0; background: none; cursor: pointer; padding: 2px 0; text-align: right;
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.rv-y:hover { color: var(--gold-text); }
+.rv-g { font-size: 13px; line-height: 1.5; text-align: center; }
+.rv-t { font-family: var(--font-serif); font-size: 15px; line-height: 1.45; color: var(--ink); }
+.rv-w { margin-left: 7px; font-size: 9.5px; color: var(--gold-text); letter-spacing: -1px; }
+.rv-m { display: flex; gap: 8px; flex-wrap: wrap; font-size: 10.5px; color: var(--ink-faint); margin: 2px 0 3px; }
+.rv-m b { font-weight: 600; }
+.rv-p { color: var(--ink-soft); }
+.rv-s { margin: 0; font-size: 12.5px; line-height: 1.72; color: var(--ink-soft); }
+
+@media (max-width: 720px) {
+  .rv-head { padding: 11px 13px 9px; }
+  .rv-head-r { margin-left: 0; width: 100%; }
+  .rv-body { padding: 0 13px 70px; }
+  .rv-it { grid-template-columns: 48px 16px 1fr; }
+  .rv-t { font-size: 14px; }
+}

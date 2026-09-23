@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>时间长河 · 中国与世界双线对照时间轴</title>
+<meta name="description" content="中国编年史与世界编年史的双线对照时间轴：公元前3000年至2026年，按十维分类，可缩放、悬停查看当年大事、点击查看详情、全文检索与主题时间线。">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/river.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ 控制条 ============ -->
+  <header class="topbar">
+    <div class="topbar-row">
+      <div class="brand">
+        <h1>时间长河</h1>
+        <small>RIVER OF TIME · 中国 × 世界 · 前3000 → 2026</small>
+      </div>
+
+      <div class="tb-group">
+        <span class="tb-label">显示</span>
+        <button class="tb-btn on" data-mode="overlay" title="同一坐标轴，中国向上、世界向下，中间画关联桥">叠加对照</button>
+        <button class="tb-btn" data-mode="split" title="两条轨道各自成带，便于逐段精读">分栏对照</button>
+        <button class="tb-btn on" id="btn-bridge" title="悬停/选中事件时绘制跨线关联曲线">关联桥</button>
+        <button class="tb-btn on" id="btn-flow" title="时间轴基线下的星河流动（随该段史实密度涨落）">星河</button>
+        <button class="tb-btn on" id="btn-labels" title="高缩放层级显示事件标题文字">文字标签</button>
+        <button class="tb-btn" id="btn-theme" title="切换配色">深墨</button>
+      </div>
+
+      <div class="tb-group">
+        <span class="tb-label">缩放</span>
+        <input type="range" id="zoom" min="0" max="1000" value="1000" aria-label="缩放：左为全程、右为单年">
+        <select id="theme-select" aria-label="主题时间线">
+          <option value="">主题时间线…</option>
+        </select>
+      </div>
+
+      <div class="tb-group">
+        <span class="tb-label">跳转到</span>
+        <input type="number" id="year-jump" placeholder="年份，公元前填负数" aria-label="跳转到年份（公元前用负数）">
+        <span id="year-jump-label" style="font-size:11px;color:var(--ink-faint)">—</span>
+        <button class="tb-btn" id="btn-jump-prev" title="上一个有记载的年份">◀</button>
+        <button class="tb-btn" id="btn-jump-next" title="下一个有记载的年份">▶</button>
+      </div>
+
+      <div class="tb-group">
+        <button class="tb-btn" id="btn-search" title="全文检索 (⌘K / Ctrl+K)">检索 ⌘K</button>
+        <button class="tb-btn" id="btn-compare" title="任意年份的中外同年对照">同年对照</button>
+        <button class="tb-btn" id="btn-mode">叠加对照</button>
+        <button class="tb-btn" data-contrib-new id="btn-contrib"
+                title="添加本站没有的条目；在条目详情里还能补出处、报核对">纠错投稿</button>
+        <button class="tb-btn" id="btn-help" title="操作说明与快捷键">帮助</button>
+      </div>
+    </div>
+
+    <div class="topbar-row">
+      <span class="tb-label">维度</span>
+      <div id="dim-chips"></div>
+      <button class="tb-btn" id="dim-all">全选</button>
+      <button class="tb-btn" id="dim-none">只留政治</button>
+      <span class="tb-label" style="margin-left:8px">重要度</span>
+      <input type="range" id="weight-floor" value="1" aria-label="最低重要度">
+      <span id="weight-floor-label" style="font-size:11px;color:var(--ink-faint);min-width:22px">≥1</span>
+      <span class="tb-label" style="margin-left:8px">溯源</span>
+      <!-- 选项由 app.js 从 ChronProv.TIERS 生成：手写四行 = 加一档就会漏一档 -->
+      <select id="prov-floor" aria-label="溯源门槛"
+              title="按「读者能不能自己去查」筛选，与重要度（这条有多重）互不相干"></select>
+    </div>
+
+    <div class="topbar-row">
+      <span class="tb-label">时代</span>
+      <div id="presets"></div>
+      <div class="tb-group" id="range-group">
+        <span class="tb-label">区间</span>
+        <input type="text" id="range-from" class="range-in" inputmode="numeric" placeholder="前3000"
+               aria-label="区间起始年，公元前可写「前636」或 -636">
+        <span class="tb-dash">—</span>
+        <input type="text" id="range-to" class="range-in" inputmode="numeric" placeholder="2026"
+               aria-label="区间结束年">
+        <select id="range-preset" aria-label="区间预设">
+          <option value="">预设…</option>
+          <option value="all">全程 前3000—2026</option>
+          <option value="view">取当前视野</option>
+          <option value="century">选中年所在世纪</option>
+          <option value="era">选中年所在时代</option>
+          <option value="last100">近 100 年</option>
+          <option value="last500">近 500 年</option>
+        </select>
+        <button class="tb-btn" id="btn-river" title="把当前筛选铺成全屏长河 (R)">长河视图</button>
+      </div>
+      <button class="tb-btn" id="btn-loadall" style="margin-left:auto">加载全部分片</button>
+    </div>
+  </header>
+
+  <!-- ============ 时间轴 ============ -->
+  <main class="stage">
+    <div id="tl-wrap">
+      <canvas id="tl-canvas" tabindex="0" role="img"
+        aria-label="时间长河：中国与世界双线编年史时间轴。滚轮缩放，拖拽平移，方向键移动，加减号缩放，方括号切换有记载的年份。"></canvas>
+    </div>
+
+    <div class="legend" id="legend"></div>
+  </main>
+
+  <!-- ============ minimap ============ -->
+  <section class="minibar">
+    <div class="cap">
+      <span>全程缩览 · 公元前3000 — 2026（柱高＝事件密度，金框＝当前视野，可拖拽）</span>
+      <span id="mm-scale"></span>
+    </div>
+    <canvas id="minimap" tabindex="0" role="img" aria-label="全程事件密度缩览图，点击或拖拽可跳转视野"></canvas>
+    <div class="hint">
+      滚轮 = 以鼠标处年份为锚点缩放 · 拖拽 = 平移 · 悬停 = 当年大事 · 点击 = 详情 · 空白处点击 = 年份档案 ·
+      <kbd>⌘K</kbd> 检索 · <kbd>R</kbd> 长河 · <kbd>[</kbd><kbd>]</kbd> 换年 · <kbd>Esc</kbd> 关闭
+    </div>
+  </section>
+
+  <!-- ============ 状态条 ============ -->
+  <footer class="statusbar">
+    <span class="grp"><b>视野</b><span id="st-view">—</span></span>
+    <span class="grp"><b>数据</b><span id="st-data">载入中…</span></span>
+    <span class="grp"><b>层级</b>由缩放自动决定：L5 时代 → L4 半世纪 → L3 十年 → L2 单年折叠 → L1 单年全量</span>
+    <span class="grp" style="margin-left:auto"><b>提示</b>「~」前缀表示年代为学界推定值</span>
+  </footer>
+</div>
+
+<div id="live" class="sr" aria-live="polite" aria-atomic="true"></div>
+
+<!-- ============ 帮助 ============ -->
+<div id="help" hidden>
+  <button id="help-close" aria-label="关闭帮助">✕</button>
+  <h3>怎么读这条时间轴</h3>
+  <p>上下两条轨道共用同一个时间坐标：<b style="color:var(--cn-soft)">中国编年史</b>向上生长，
+     <b style="color:var(--wd-soft)">世界编年史</b>向下生长。中间那条虚线是「关联桥」——
+     悬停或选中任一条目，它在另一条轨道上的同期关联事件会被点亮。</p>
+
+  <h4>星河</h4>
+  <p>两条基线之下各有一条河：<b>河面明暗随该段史实密度涨落</b>——事件密的年份水色浑厚，空白处水色清淡；
+     水面有两道交错的波光，星子顺着时间方向（自左而右）漂流，越靠近基线越密，像从河里浮起来的年头。
+     顶栏「星河」可关；系统里开了「减弱动态效果」时它不动，只留一幅静水；打开全屏长河时自动停帧，不占后台算力。</p>
+
+  <h4>缩放层级（LOD）</h4>
+  <p>数据密度随缩放自动切换，避免缩小成一团、放大后又是空的：</p>
+  <table>
+    <tr><td>L5 时代</td><td>跨千年视野，按朝代/文明带聚合，只显示各时代里程碑</td></tr>
+    <tr><td>L4 半世纪</td><td>50 年一格，圆点大小＝条数，形状＝主导维度</td></tr>
+    <tr><td>L3 十年</td><td>10 年一格 + 重要度 ≥4 的单条</td></tr>
+    <tr><td>L2 单年折叠</td><td>逐年显示，低权重并入 <code>+N</code>，点它可放大</td></tr>
+    <tr><td>L1 单年全量</td><td>逐年全部条目 + 标题文字</td></tr>
+  </table>
+
+  <h4>快捷键</h4>
+  <table>
+    <tr><td>滚轮 / ⌘+滚轮</td><td>以鼠标下的年份为锚点缩放</td></tr>
+    <tr><td>横向滚轮 / 拖拽</td><td>平移，带惯性</td></tr>
+    <tr><td>双击</td><td>就地放大 4 倍</td></tr>
+    <tr><td>← → / Shift+← →</td><td>平移视野（小步 / 大步）</td></tr>
+    <tr><td>+ −</td><td>以中心缩放</td></tr>
+    <tr><td>Home / End</td><td>回到全程 / 跳到 2026</td></tr>
+    <tr><td>[ ]</td><td>上一个 / 下一个<b>有记载的</b>年份</td></tr>
+    <tr><td>Enter</td><td>打开当前选中条目的详情</td></tr>
+    <tr><td>⌘K / Ctrl+K 或 /</td><td>检索</td></tr>
+    <tr><td>R</td><td>打开 / 关闭全屏「长河」梳理视图</td></tr>
+    <tr><td>Shift+Enter（检索面板内）</td><td>把当前检索结果（或面板展示的里程碑）铺成长河</td></tr>
+    <tr><td>Alt+点击维度</td><td>独显该维度</td></tr>
+    <tr><td>Esc</td><td>依次关闭详情 / 气泡 / 检索 / 主题线，最后才退出长河</td></tr>
+  </table>
+
+  <h4>检索语法</h4>
+  <p><code>!cn</code> <code>!world</code> 只看该轨（非排除） · <code>#science</code> 限定维度 · <code>@张居正</code> 限定人物 ·
+     <code>1368-1644</code> 年份区间 · <code>前636</code> 单年。多个词之间是「与」关系。</p>
+
+  <h4>时间区间</h4>
+  <p>顶栏两个输入框直接写年份（<code>前636</code>、<code>-636</code> 或 <code>636</code>，回车生效），预设可一键取
+     全程 / 当前视野 / 选中年所在世纪 / 所在时代 / 近 100 年 / 近 500 年。区间是<b>全局筛选</b>，与维度、重要度同级，
+     主时间轴、年份档案、双线对照与长河都跟随它；下方「全程缩览」例外——它始终画公元前 3000 至 2026 的完整密度，好让你看得见
+     被区间切掉的部分。区间与你滚轮调出的<b>视野</b>是两件事：设区间会带着镜头飞过去，缩放镜头则永不改动区间。
+     设置会存入本机，刷新后仍在。</p>
+
+  <h4>长河视图</h4>
+  <p>把检索命中的事件铺成一条可通读的竖直流：分节粒度随年份跨度自适应（世纪 / 十年 / 单年，按重要度排序时不分节），
+     顶部目录列出各节并标出条数以显疏密。三个开关——长河始终只铺当前时间区间内的条目，「仅当前筛选」再叠上维度、
+     轨道与重要度门槛（从检索或主题线进入时默认不勾，全览模式默认勾选），「排序」在时间与重要度间切换，
+     「区间 ±20%」把区间向两端各放宽两成（至少十年，可连点），用来找回被区间切掉的流首流尾。入口有三处——
+     检索面板的「铺成长河」（或 <kbd>Shift+Enter</kbd>）、主题线浮窗的「铺成全屏长河」、顶栏的长河按钮与 <kbd>R</kbd>。
+     地址形如 <code>#/river/关键词</code>，可直接分享或回退。</p>
+
+  <h4>数据与口径</h4>
+  <p>每条事件带维度、重要度（1–5）、摘要、详情三段（背景/经过/影响）、关键人物、地点、政权与出处。
+     公元前 841 年（共和行政）是中国有连续确切纪年之始，此前年代为学界推定值，一律以「~」标注。
+     本站只陈述事实与出处，不做价值排序。数据分片见 <code>data/</code>，维护与校验流程见 <code>README.md</code>。</p>
+</div>
+
+<!-- ============ 脚本（顺序即依赖） ============ -->
+<!-- 投稿送达的公开仓库：本站指向 lv31415926/chronicle——「在 GitHub 上开一个 issue」这条出口就落在那里。
+     fork 或镜像站必须改成自己那份仓库地址，否则投稿会被送进别人的 issue 列表。
+     留空仍然合法：表单照样生成记录，走复制／下载两条出口，并如实写明这条还没进本站数据。
+     必须排在 js/contribute.js 之前——那个模块在加载时读一次这个全局，之后再改它不生效。 -->
+<script>window.__CHRONICLE_CONTRIB_REPO = "lv31415926/chronicle";</script>
+<script src="data/meta.js"></script>
+<script src="data/reign.js"></script>
+<script src="data/themes.js"></script>
+<script src="js/time.js"></script>
+<script src="js/state.js"></script>
+<script src="js/shapes.js"></script>
+<script src="js/palette.js"></script>
+<script src="js/prov.js"></script>
+<script src="js/flow.js"></script>
+<script src="js/lod.js"></script>
+<script src="js/axis.js"></script>
+<script src="js/loader.js"></script>
+<script src="js/timeline.js"></script>
+<script src="js/popover.js"></script>
+<script src="js/detail.js"></script>
+<script src="js/compare.js"></script>
+<script src="js/themes.js"></script>
+<script src="js/search.js"></script>
+<script src="js/river.js"></script>
+<script src="js/contribute.js"></script>
+<script src="js/interaction.js"></script>
+<script src="js/router.js"></script>
+<script src="js/app.js"></script>
+
+<div id="boot">
+  <div>
+    <div class="epigraph" role="figure"
+         aria-label="子在川上曰：逝者如斯夫，不舍昼夜。——《论语·子罕》。我们都是历史的见证者，我们都是历史的创造者。">
+      <div class="ep-say" aria-hidden="true">子在川上曰</div>
+      <div class="ep-line" aria-hidden="true"><span>逝</span><span>者</span><span>如</span><span>斯</span><span>夫</span><span class="ep-p">，</span><span>不</span><span>舍</span><span>昼</span><span>夜</span></div>
+      <div class="ep-flow" aria-hidden="true"></div>
+      <div class="ep-src" aria-hidden="true">《论语 · 子罕》</div>
+      <!-- 引言站在时间的角度看人，这句站在人的角度看时间——所以它留在题记之内，撤场时随引言一同淡出。
+           字色走 --ink-soft：投稿界面整套字色由 test-units 的对比度门按它实测，写死 hex 就绕过了那道门。 -->
+      <p class="ep-we" aria-hidden="true">我们都是历史的见证者，我们都是历史的创造者。</p>
+    </div>
+
+    <div class="logo">时 间 长 河</div>
+    <div class="sub">中国编年史 × 世界编年史 · 双线对照时间轴</div>
+    <div class="bar"></div>
+    <div class="sub" id="boot-stat">正在载入数据…</div>
+    <button class="enter" id="boot-enter" hidden>进 入 长 河<span class="enter-tip">点击任意处 · 或按回车</span></button>
+  </div>
+</div>
+
+</body>
+</html>

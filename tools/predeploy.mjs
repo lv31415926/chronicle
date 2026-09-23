@@ -64,30 +64,60 @@ if (git(["rev-parse", "--is-inside-work-tree"]) === null) {
   bad("这里不是 git 仓库，后面的发布面检查无从做起");
   process.exit(1);
 }
-const staged = (git(["diff", "--cached", "--name-only"]) || "").split("\n").filter(Boolean);
-if (!staged.length) { bad("git 索引是空的：先 git add -A 再跑本门"); process.exit(1); }
+/* 判什么清单要想清楚：`diff --cached` 是「相对 HEAD 的暂存改动」，首次提交之后它只剩刚 add 的那一个
+ * 文件——拿它当发布面，等于在 1/94 的覆盖上判「没有密钥」，而输出照样写着「索引 N 个文件里没有」。
+ * 别人 clone 到的是「全部被跟踪文件」，所以这里取 `ls-files`，条数由下面的对账判据钉住。 */
+const tracked = (git(["ls-files"]) || "").split("\n").filter(Boolean);
+if (!tracked.length) { bad("git 索引是空的：先 git add -A 再跑本门"); process.exit(1); }
 
-const leaks = staged.filter((p) => SECRET_RE.test(p));
+/* 还原视图的实数与被跟踪清单是两条独立通道量同一个量。不相等 ⇒ ②跑的不是①判的那批内容。 */
+const reconcile = (restored, listed) => restored === listed ? null :
+  `还原视图 ${restored} 个文件 / ls-files ${listed} 个（两数不等即判红）：②跑的与①判的不是同一批内容`;
+/* 被跟踪却不在工作树上 = 工作树门与还原视图同题的前提破了；
+ * 且 stat 失败若只记成 -1 会静默通过巨块判据，所以必须先单独拎出来变红。 */
+const missingFrom = (list) => list.filter((p) => !fs.existsSync(path.join(ROOT, p)));
+
+/* ===== 自审：这两条判据本身得能为红，否则「清单一致」只是一句没人验证的话 ===== */
+{
+  const dead = [];
+  if (reconcile(95, 1) === null) dead.push("对账判据在 95≠1 时不报红（清单缩到 1 个文件也没人管）");
+  if (reconcile(95, 95) !== null) dead.push("对账判据在 95=95 时报红（恒红＝下一轮有人把它删掉）");
+  if (!missingFrom(["tools/__probe_should_never_exist__.mjs"]).length)
+    dead.push("缺失文件判据抓不到必然不存在的路径");
+  if (missingFrom(["README.md"]).length) dead.push("缺失文件判据误伤在盘上的文件");
+  dead.length ? bad("发布面判据漏网：" + dead.join("；") + "（下面两条「一致」不可信）")
+              : good("对账与缺失判据自审：正反各两例全对");
+}
+
+const leaks = tracked.filter((p) => SECRET_RE.test(p));
 leaks.length ? bad("索引里有疑似密钥文件，必须先移出：" + leaks.join(" "))
-             : good("索引 " + staged.length + " 个文件里没有疑似密钥");
+             : good("索引 " + tracked.length + " 个文件里没有疑似密钥");
 
 /* 未跟踪且未被忽略 = 会被漏掉的源文件 */
 const untracked = (git(["ls-files", "--others", "--exclude-standard"]) || "").split("\n").filter(Boolean);
 untracked.length ? bad("这些文件既没进索引也没被忽略，clone 之后就是少了它们：\n   " + untracked.join("\n   "))
                  : good("没有「未跟踪又未忽略」的漏网文件");
 
-const big = staged.map((p) => [p, fs.existsSync(path.join(ROOT, p)) ? fs.statSync(path.join(ROOT, p)).size : -1])
-                  .filter(([, s]) => s > SINGLE_FILE_MAX);
+const missing = missingFrom(tracked);
+missing.length ? bad("索引里有文件不在工作树上，①与②跑的已不是同一批内容：" + missing.join(" "))
+               : good(`被跟踪的 ${tracked.length} 个文件全部在工作树上（工作树门与 clone 视图同题）`);
+
+const big = tracked.map((p) => [p, fs.existsSync(path.join(ROOT, p)) ? fs.statSync(path.join(ROOT, p)).size : -1])
+                   .filter(([, s]) => s > SINGLE_FILE_MAX);
 big.length ? bad("单文件超过 5MB（GitHub 会警告、Pages 会拖慢首屏）：\n   " +
                  big.map(([p, s]) => p + " " + (s / 1048576).toFixed(1) + "MB").join("\n   "))
-           : good("最大单文件 " + (Math.max(...staged.map((p) => fs.existsSync(path.join(ROOT, p)) ? fs.statSync(path.join(ROOT, p)).size : 0)) / 1024).toFixed(0) + "KB，没有巨块");
+           : good("最大单文件 " + (Math.max(...tracked.map((p) => fs.existsSync(path.join(ROOT, p)) ? fs.statSync(path.join(ROOT, p)).size : 0)) / 1024).toFixed(0) + "KB，没有巨块");
 
 /* ===== ③ 只按索引还原一份「别人 clone 到的样子」再跑一遍 ===== */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "chronicle-staging-"));
 try {
   execFileSync("git", ["checkout-index", "-a", "-f", "--prefix=" + tmp + "/"], { cwd: ROOT, encoding: "utf8" });
   const got = execFileSync("find", [tmp, "-type", "f"], { encoding: "utf8" }).split("\n").filter(Boolean).length;
-  good("已按索引还原 " + got + " 个文件到纯净目录（.gitignore 判对判错，下面这几道门说了算）");
+  /* 加这条对账的直接原因就是本轮抓到的那个缺陷——清单从 94 缩到 1 时，扫描仍报绿。 */
+  const mismatch = reconcile(got, tracked.length);
+  mismatch ? bad(mismatch)
+      : good(`已按索引还原 ${got} 个文件（与 ls-files 一致）到纯净目录——` +
+             `.gitignore 判对判错，下面这几道门说了算`);
   console.log("② 纯净 staging（等价于 fresh clone）");
   for (const g of STAGING_GATES) {
     const r = runGate(tmp, g);

@@ -1324,6 +1324,7 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
       const colors = [...body.matchAll(/(?:^|[;{])\s*color:\s*var\((--[\w-]+)\)/g)].map((c) => c[1]);
       if (!colors.length) continue;
       if (!(sel.includes(".contrib") || /\.cf\b/.test(sel) || sel.includes(".ep-we") ||
+            sel.includes(".beian") ||
             colors.some((c) => TEXT_TOKENS.includes(c)))) continue;
       rules.push([sel, colors]);
     }
@@ -1331,6 +1332,11 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
        `投稿界面的字色规则扫得到 ${rules.length} 条（少于 8 条=选择器切片失效，下面全在空转）`);
     ok(rules.some(([s]) => s.includes(".ep-we")),
        "开场题记收束行 .ep-we 也在这份字色清单里（漏出清单=给它换任何字色都不会让本门变红）");
+    ok(rules.some(([s]) => s.includes(".beian")),
+       "备案号链接 .beian 也在这份字色清单里（漏出清单=日后把它换成任何字色都不会让本门变红）。" +
+       /* 双重保护：它当下走 --link，而 --link 本身在 TEXT_TOKENS 里——只删上面那个选择器条件不会
+        * 变红。所以 test-gates-meta 里对应的用例打在「css 删掉 color 声明」这个真实缺陷形态上。 */
+       "");
     for (const theme of ["dark", "light"]) {
       const T = blockTokens(`html\\[data-theme="${theme}"\\]`);
       const surfaces = SURFACES.map((s) => resolve(s, T)).filter(Boolean);
@@ -1846,6 +1852,54 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
     ok(rmBlocks.length >= 1, `css 里至少切得出 1 个 prefers-reduced-motion 块（实得 ${rmBlocks.length} 个：一个都切不出，下面的归零判据就在空串上恒假）`);
     ok(/\.ep-we/.test(rmBlocks.join("\n")),
        "减动效时 .ep-we 的入场延迟一并归零（引言行都归了，独留这句晚到=偏好挡不住一句话）");
+  }
+
+  /* ---------- ICP 备案号展示位（方案 B：境内接入） ----------
+   * 备案号是境内接入的法定标识：境内必须有、必须可点、格式须与工信部下发的一致；解析到境外
+   * 则整行都不该存在。本站当前在境外 ⇒ 真件走「0 处」分支，而 0 处会让下面每一条判据在空清单
+   * 上恒真——所以同批复活样本与四类坏样本，先证明这把尺子本身能为红。 */
+  {
+    const BEIAN_HREF = "https://beian.miit.gov.cn/";
+    const ICP_RE = /^[一-龥]{1,3}ICP备\d{6,14}号(?:-\d{1,4})?$/;
+    const stripHtml = (s) => s.replace(/<!--[\s\S]*?-->/g, "");
+    function beianErrs(html) {
+      const real = stripHtml(html);
+      const ms = [...real.matchAll(/<a\b[^>]*class="[^"]*\bbeian\b[^"]*"[^>]*>([\s\S]*?)<\/a>/g)];
+      if (ms.length > 1) return [`出现 ${ms.length} 处 .beian 链接（法定标识只该有一处，多处必有一处是残骸）`];
+      if (!ms.length) return [];
+      const tag = ms[0][0], inner = ms[0][1].trim();
+      const e = [];
+      if (!ICP_RE.test(inner)) e.push(`备案号「${inner}」不匹配工信部形状（省简称 + ICP备 + 6~14 位数字 + 号[-后缀]）`);
+      if (!new RegExp('href="' + BEIAN_HREF + '"').test(tag)) e.push(`备案号的链接不是 ${BEIAN_HREF}`);
+      if (!/target="_blank"/.test(tag)) e.push("备案号链接没写 target");
+      if (!/rel="[^"]*noopener/.test(tag)) e.push("备案号链接的 rel 没有 noopener（外链不切断 window.opener 是现成的攻击面）");
+      return e;
+    }
+    const OK_LINE = '<a class="beian" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">京ICP备2026000001号-1</a>';
+    eq(beianErrs("<footer>" + OK_LINE + "</footer>").join("；"), "",
+       "自审正例：合规挂法判 0 错（它若报错，下面关于真件的结论就不可信）");
+    for (const [bad, want] of [
+      [OK_LINE.replace("京ICP备2026000001号-1", "备案号正在办理"), "不匹配工信部形状"],
+      [OK_LINE.replace("https://beian.miit.gov.cn/", "https://example.com/"), "链接不是"],
+      [OK_LINE.replace(' target="_blank"', ""), "没写 target"],
+      [OK_LINE.replace("noopener", ""), "noopener"],
+      ["<footer>" + OK_LINE + OK_LINE + "</footer>", "只该有一处"],
+    ]) {
+      const got = beianErrs(bad).join("；");
+      ok(got.includes(want), `自审负例「${want}」被抓到并点名（实得 ${JSON.stringify(got)}：抓不到＝0 处分支下这些判据全在空转）`);
+    }
+    /* ---- 以下是真件 ---- */
+    const nBeian = (stripHtml(indexHtml).match(/class="[^"]*\bbeian\b/g) || []).length;
+    ok(nBeian <= 1, `真实 DOM 里的备案号链接不超过 1 处（实得 ${nBeian}）`);
+    eq(beianErrs(indexHtml).join("；"), "",
+       `index.html 当前的备案号挂法合规（0 处＝境外接入，本身就是合规状态；挂了就要条条合规）`);
+    const cmt = (indexHtml.match(/<!--[\s\S]*?ICP 备案号[\s\S]*?-->/) || [""])[0];
+    ok(cmt.length > 0, "index.html 里留着注释形式的备案号挂法（换宿主的人只翻文件，不翻对话记录）");
+    ok(cmt.includes("beian.miit.gov.cn"), "注释里那行的链接指向工信部（贴进去即可点，不必再查地址）");
+    const beianCss = /\.statusbar \.beian\s*\{([^}]*)\}/.exec(cssAll2);
+    ok(!!beianCss, "css 里给 .statusbar .beian 定了样式（没样式=跟着状态条的 --ink-faint 走，法定标识灰到看不见）");
+    if (beianCss) ok(/color:\s*var\(--[\w-]+\)/.test(beianCss[1]),
+       ".beian 的字色取自令牌（写死 hex 就绕开了本文件那道逐主题量对比度的门）");
   }
 
   /* ---------- 蜜罐与限频：礼貌层不能反过来吞掉正常投稿 ---------- */

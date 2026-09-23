@@ -816,6 +816,47 @@ const CASES = [
     to: "      if (e.title.length < 3) errs.push(",
     name: "比下限少一字即判废",
   },
+  /* ---- ICP 备案号（方案 B）：形状/处数/target/rel 四条判据与字色清单成员各自改哑 ---- */
+  {
+    label: "备案号形状判据改哑（任何文字都算合规编号）",
+    file: "tools/test-units.mjs",
+    runner: "tools/test-units.mjs",
+    from: "      if (!ICP_RE.test(inner)) e.push(",
+    to: "      if (false && !ICP_RE.test(inner)) e.push(",
+    name: "自审负例「不匹配工信部形状」",
+  },
+  {
+    label: "备案号处数判据抬高（挂两处不再算错）",
+    file: "tools/test-units.mjs",
+    runner: "tools/test-units.mjs",
+    from: "      if (ms.length > 1) return [",
+    to: "      if (ms.length > 9) return [",
+    name: "自审负例「只该有一处」",
+  },
+  {
+    label: "备案号的 target 判据改哑",
+    file: "tools/test-units.mjs",
+    runner: "tools/test-units.mjs",
+    from: '      if (!/target="_blank"/.test(tag)) e.push(',
+    to: "      if (false) e.push(",
+    name: "自审负例「没写 target」",
+  },
+  {
+    label: "备案号的 rel/noopener 判据改哑",
+    file: "tools/test-units.mjs",
+    runner: "tools/test-units.mjs",
+    from: '      if (!/rel="[^"]*noopener/.test(tag)) e.push(',
+    to: "      if (false) e.push(",
+    name: "自审负例「noopener」",
+  },
+  {
+    label: "css 删掉 .beian 的 color（备案号跟着状态条灰到底）",
+    file: "css/layout.css",
+    runner: "tools/test-units.mjs",
+    from: ".statusbar .beian { color: var(--link); text-decoration: underline; }",
+    to: ".statusbar .beian { text-decoration: underline; }",
+    name: "备案号链接 .beian 也在这份字色清单里",
+  },
 ];
 
 let ok = 0;

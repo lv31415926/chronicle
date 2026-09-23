@@ -115,6 +115,10 @@ body.dragging #tl-canvas { cursor: grabbing; }
 }
 .statusbar b { color: var(--ink-soft); font-weight: 600; }
 .statusbar .grp { display: inline-flex; gap: 5px; align-items: center; }
+/* ICP 备案号（只在境内接入时存在，见 README「境内接入（方案 B）」）。状态条正文走 --ink-faint
+ * （本仓库已知的 AA 欠账），但备案号是必须看得见、点得走的法定标识，所以单独走 --link：
+ * 字色写死 hex 就绕开了 test-units 那道按四种底色×两套主题实测对比度的门。 */
+.statusbar .beian { color: var(--link); text-decoration: underline; }
 
 /* ---------- 启动遮罩 ---------- */
 #boot {

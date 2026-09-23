@@ -157,8 +157,13 @@ fork 或镜像站**必须改成自己那份 `owner/name`**——留着别人的�
    滑向交互式服务，要另走前置审批。**要不要开这一格，是合规决定，不是前端决定。**
 6. **绑定与展示**。在托管商控制台把域名绑到静态托管并开启 HTTPS（免费 DV 证书需在域名
    已解析后才能签发），CDN 回源到托管；备案号挂在页脚并链到 `beian.miit.gov.cn`——
-   这是展示义务，漏挂会被要求整改。**这是 B 相对 A 唯一一处要改 `index.html` 的地方**：
-   页脚加一行备案号链接。
+   这是展示义务，漏挂会被要求整改。**这是 B 相对 A 唯一一处要改 `index.html` 的地方**，
+   而且挂法已经留在文件里：页脚注释中有一行可原样粘贴的
+   `<a class="beian" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">…</a>`，
+   把示例编号换成工信部下发的那个即可。别挂空壳——备案号是法定标识，写错或留空壳比不挂更糟，
+   所以 `tools/test-units.mjs` 核对它的形状、链接、`target`、`rel` 与「最多一处」，
+   `.beian` 的字色也被那道逐主题量对比度的门盯着（状态条正文走 `--ink-faint`，法定标识不能跟着灰）。
+   本站当前解析到境外，真件走「0 处」分支——这不是漏挂，是另一种合规状态。
 7. **发布方式变了**。A 路线 `git push` 即上线；B 路线没有 CI 会自动同步，每次改动都要把整个
    目录再传一遍（控制台拖，或 `ossutil cp -r` / `coscmd upload -r`）。这是长期成本，不是初始成本，
    所以先 A 后 B、A B 并存（备案下来时只换解析并补一行页脚备案号）通常比直接上 B 划算。
@@ -217,7 +222,8 @@ tools/
                     报错文案与判据同线、issue 唯一写入通道（模板头 name/about/labels 齐且标签与 LABEL 同源、
                     表单写入的每个 .contrib-* 节点都在弹窗骨架里）、
                     开场收束语（取不到即空串恒真那句先拦、必须落在题记之内、字色走令牌并进 AA 清单、
-                    减动效下入场延迟一并归零）（721 项）
+                    减动效下入场延迟一并归零；ICP 备案号：形状/链接/target/rel/最多一处五条判据各配
+                    自审负例，另查注释里留着可粘贴的挂法与 .beian 字色走令牌）（736 项）
   test-gates.mjs    门禁可红性自审：给每个门注入一处定向变异，要求它变红并命中指定检查码
                     （65 项）——一道永远不变红的门等于这道门不存在
   test-gates-meta.mjs 再往上套一层：把门改哑，验对应自审器（test-gates / test-doc-cite /
@@ -259,7 +265,7 @@ tools/
    故 `--strict` 是默认口径（此时悬空 `related` 按错误计，不再是告警）。
 4. `node tools/test-units.mjs` — 改动 `js/time|axis|lod|state|themes|flow|loader|prov|contribute.js`、
    `.github/ISSUE_TEMPLATE/`、投稿弹窗的骨架与 `.contrib*` 样式、开场题记（`index.html` 的 `#boot .epigraph`
-   与 `css/layout.css` 的题记样式块），或数据元信息后必跑。含加载器失效路径：
+   与 `css/layout.css` 的题记样式块）、状态条的备案号链接 `.beian`，或数据元信息后必跑。含加载器失效路径：
    注入悬挂/缺文件/坏 manifest 时，遮罩必须超时判失败而不是把整站冻死（`failedChunks()` 必须留账）。
 5. `node tools/e2e-static.mjs` — 改 `js/` 或 `index.html` 的脚本顺序后必跑。零构建站的全部
    致命约束（无 fetch、无 ES module、脚本顺序即依赖顺序、**资源一律相对路径**）都在这里查，不靠浏览器。

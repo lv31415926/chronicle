@@ -1,0 +1,151 @@
+/* story.css | 故事层：小故事抽屉与详情里的「此事的小故事」
+ *
+ * 版式的任务只有一个：让「谁写的这句话」永远一眼可分。
+ * 复述（本站所写）用衬线、正体；引文（逐字取自底本）缩进并压深一档底色；
+ * 标记（原文/大意/性质/系年）用无衬线小字。若把复述排得像引文，读者就会把我们的话当史料。
+ *
+ * 四种性质之间不排高下：只用边框线型区分（实线/虚线/点线/双钩），
+ * 色相只做次要通道——灰阶截图与色觉障碍下仍要分得清，这条和溯源标识用的是同一套办法。
+ */
+
+/* ============ 抽屉骨架 ============ */
+body.story-open .detail { right: 520px; }
+.story-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 520px; max-width: 94vw; z-index: 46;
+  display: flex; flex-direction: column;
+  background: var(--bg-panel); border-left: 1px solid var(--rule); box-shadow: var(--shadow);
+}
+/* 不能只靠 hidden 属性：本类的 display:flex 与 UA 的 [hidden] 同权重、且作者样式胜出，
+ * 少这一条就是「关掉以后抽屉还杵在右边」。 */
+.story-drawer[hidden] { display: none; }
+.sy-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--rule-soft); }
+.sy-crumb { flex: 1 1 auto; font: 600 12px/1.4 var(--font-sans); color: var(--ink); }
+.sy-tools { display: flex; gap: 4px; }
+.sy-tools button {
+  padding: 4px 8px; background: var(--bg-elev); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: var(--r-sm); font: 400 11px/1 var(--font-sans); cursor: pointer;
+}
+.sy-tools button:hover { background: var(--bg-hover); }
+.sy-filters { flex: 0 0 auto; padding: 8px 12px; border-bottom: 1px solid var(--rule-soft); display: flex; flex-wrap: wrap; gap: 4px 0; }
+.sy-body { flex: 1 1 auto; overflow: auto; padding: 12px; outline: none; }
+
+.sy-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; }
+.sy-lab { font: 600 10px/1.5 var(--font-sans); letter-spacing: .1em; color: var(--ink-faint); margin-right: 2px; }
+.sy-pill {
+  padding: 2px 8px; background: none; border: 1px solid var(--rule); border-radius: 999px;
+  color: var(--ink-soft); font: 400 11px/1.6 var(--font-sans); cursor: pointer;
+}
+.sy-pill:hover { border-color: var(--ink-faint); color: var(--ink); }
+.sy-pill.on { background: var(--bg-hover); border-color: var(--ink-soft); color: var(--ink); }
+.sy-who { color: var(--ink); font: 600 12px/1.6 var(--font-sans); }
+.sy-row button[data-st-clear] {
+  padding: 2px 8px; background: none; border: 1px dashed var(--rule); border-radius: var(--r-sm);
+  color: var(--ink-soft); font: 400 11px/1.6 var(--font-sans); cursor: pointer;
+}
+.sy-legend {
+  margin: 0 0 12px; padding: 8px 10px; background: var(--bg-elev);
+  border-left: 3px solid var(--rule); border-radius: var(--r-sm);
+  color: var(--ink-soft); font: 400 11.5px/1.75 var(--font-sans);
+}
+.sy-bad { color: var(--ink-soft); font: 400 12px/1.7 var(--font-sans); padding: 10px 2px; }
+.sy-bad button { margin-top: 6px; padding: 3px 9px; background: var(--bg-elev); border: 1px solid var(--rule); border-radius: var(--r-sm); color: var(--ink); font: 400 11px/1.6 var(--font-sans); cursor: pointer; }
+
+/* ============ 一张故事卡 ============ */
+.st-card { padding: 10px 0; border-top: 1px solid var(--rule); }
+.st-card:first-of-type { border-top: 0; padding-top: 2px; }
+.st-top { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.st-title { color: var(--ink); font: 600 14px/1.5 var(--font-serif); cursor: pointer; }
+.st-title:hover { color: var(--link); }
+/* 系年与分片名是这一层里唯一能证明「这条挂在哪个年份上」的字，不给它们走 --ink-faint：
+ * 实测宣纸/深墨两题下都只剩 3.8:1，读者要眯眼才认得出自己看的是哪一年。 */
+.st-era, .st-y { color: var(--ink-soft); font: 400 11px/1.5 var(--font-sans); }
+.st-y { font-family: var(--font-serif); }
+.st-min { cursor: pointer; }
+.st-peek { margin: 3px 0 0; color: var(--ink-soft); font: 400 12.5px/1.7 var(--font-sans); }
+
+/* 性质标签：线型是第一通道，色相第二 */
+.st-kind {
+  flex: 0 0 auto; padding: 1px 6px; border-radius: var(--r-sm);
+  font: 400 10px/1.6 var(--font-sans); cursor: help;
+}
+.st-kind-real { border: 1px solid var(--gold); color: var(--gold-text); }
+.st-kind-note { border: 1px dashed var(--ink-faint); color: var(--ink-soft); }
+.st-kind-tale { border: 1px dotted var(--warn); color: var(--warn); }
+.st-kind-dig { border: 3px double var(--link); color: var(--link); }
+.sy-pill.st-kind-real, .sy-pill.st-kind-note, .sy-pill.st-kind-tale, .sy-pill.st-kind-dig {
+  border-style: solid; border-width: 1px; border-radius: 999px;
+}
+
+/* 锚点行：故事必须能一键回到账本 */
+.st-anchor { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; margin: 5px 0 0; font: 400 11.5px/1.6 var(--font-sans); color: var(--ink-soft); }
+.st-anchor b { color: var(--ink); font-weight: 600; cursor: pointer; }
+.st-anchor b:hover { color: var(--link); }
+.st-here { cursor: default !important; }
+.st-tk { color: var(--ink-faint); }
+.st-orphan { color: var(--warn); }
+.st-orphan button { margin-left: 6px; padding: 2px 8px; background: var(--bg-elev); border: 1px solid var(--rule); border-radius: var(--r-sm); color: var(--ink); font: 400 11px/1.5 var(--font-sans); cursor: pointer; }
+
+/* 复述：本站写的，所以给正体衬线、不给引号 */
+.st-scene { margin: 7px 0 0; color: var(--ink); font: 400 13.5px/1.85 var(--font-serif); }
+
+/* 引文：只有这一行可以带「原文」二字，排版也必须与复述拉开 */
+.st-quote {
+  margin: 9px 0 0; padding: 8px 11px; background: var(--bg-elev);
+  border-left: 3px solid var(--gold); border-radius: var(--r-sm);
+  color: var(--ink); font: 400 13px/1.8 var(--font-serif);
+}
+.st-para { border-left-color: var(--rule); color: var(--ink-soft); font-style: normal; }
+.st-lab {
+  display: inline-block; margin-right: 7px; padding: 0 5px; border-radius: var(--r-sm);
+  background: var(--bg-hover); font: 600 10px/1.7 var(--font-sans); letter-spacing: .06em; cursor: help;
+}
+.st-lab-ver { color: var(--gold-text); border: 1px solid var(--gold); }
+.st-lab-para { color: var(--ink-soft); border: 1px dashed var(--ink-faint); }
+
+.st-people { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.st-person { cursor: pointer; }
+
+.st-caveat, .st-find {
+  margin-top: 8px; padding: 7px 10px; border-radius: var(--r-sm);
+  background: var(--bg-elev); color: var(--ink-soft); font: 400 11.5px/1.7 var(--font-sans);
+}
+.st-caveat { border-left: 3px solid var(--warn); }
+.st-caveat p { margin: 0; }
+.st-find { border-left: 3px solid var(--link); }
+.st-caveat .st-lab, .st-find .st-lab { background: none; border: 0; padding: 0; color: var(--ink-faint); }
+
+.st-src { margin-top: 8px; }
+/* 底本行是这一层的账，不是脚注：小字号但必须一眼读得清。 */
+.st-src code { color: var(--ink-soft); font: 400 10.5px/1.7 var(--font-mono); }
+.st-go {
+  display: block; margin-top: 5px; padding: 3px 9px; background: none;
+  border: 1px dashed var(--rule); border-radius: var(--r-sm);
+  color: var(--ink-soft); font: 400 11px/1.6 var(--font-sans); cursor: pointer;
+}
+.st-go:hover { color: var(--link); border-color: var(--link); border-style: solid; }
+
+/* ============ 详情抽屉里的那一段 ============ */
+.detail .st-block { padding-top: 10px; border-top: 1px solid var(--rule-soft); }
+.detail .st-card { border-top: 0; padding: 9px 0; }
+/* .detail .para p 把这一段压成了 --ink-soft（事实层的正文色）。复述在两处必须同色：
+ * 同一条故事在详情里读起来比在抽屉里暗一档，读者会以为那是弱一档的内容。
+ * 选择器必须带上 .para：.detail .para p 的权重是「两类一型」，
+ * .detail .st-scene 只有「两类」，写轻了这条根本压不住——实测字色仍是 --ink-soft。 */
+.detail .para .st-scene { color: var(--ink); font-size: 13.4px; }
+/* 同一处权重账：这句「复述出自本站」在两处必须同色同字号——不写这条，
+ * 详情里的它会跟着 .detail .para p 走 13.6px，抽屉里却继承面板正文字，读者看到的是两个东西。
+ * 取 --ink-soft 而非 --ink-faint：实测 11px 的 faint 字在两题下都只剩 3.8:1，
+ * 这句是免责说明、不是脚注装饰，得读得清。 */
+.detail .para .st-note { color: var(--ink-soft); font-size: 11.5px; }
+/* 「为什么这样标」同样是被 .detail .para p 改了字号的那类 p：抽屉里 11.5px，
+ * 详情里跟着正文走 13.6px——同一句注解在两处像两种东西。 */
+.detail .para .st-caveat p { font-size: 11.5px; line-height: 1.7; }
+.detail .para .st-wait p { color: var(--ink-faint); }
+
+/* ============ 窄屏：抽屉改下半屏，详情回到满宽 ============ */
+@media (max-width: 720px) {
+  .story-drawer { width: 100%; max-width: none; top: auto; height: 76vh; border-left: 0; border-top: 1px solid var(--rule); }
+  body.story-open .detail { right: 0; }
+  .sy-head { padding: 8px 10px; }
+  .sy-body { padding: 10px; }
+}

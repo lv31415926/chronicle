@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://lv31415926.github.io/chronicle/sitemap.xml

@@ -1,0 +1,96 @@
+# 时间长河 · River of Time
+
+> 中国编年史 × 世界编年史的双线对照时间轴，4910 条编年事件、27 个数据分片、前 3000 — 2026。
+> 现在多了一条空间轴：492 个古今地名、4312 条事件落点、6 条人物行迹、3 幅「山河大势」示意。
+> 零构建、零依赖、零服务器：双击 `index.html`（`file://`）即可完整使用。
+
+- 站点（Canonical）：https://lv31415926.github.io/chronicle/
+- 仓库：https://github.com/lv31415926/chronicle
+- 静态专题页目录：https://lv31415926.github.io/chronicle/topics/index.html
+- Sitemap：https://lv31415926.github.io/chronicle/sitemap.xml
+- 本地 MCP（stdio，零依赖）：`node scripts/mcp-server.mjs`
+
+## 0. 本站与同类站点的差别：每条叙述都带「能查到哪一步」
+
+本站不写「谁认证过」，只写**读者能不能自己查证**。等级不由人工标注、也不写进数据，
+而是由 `js/prov.js` 对每条现算（唯一派生处）：
+
+| 等级 | 判据 |
+| --- | --- |
+| 已核 verified | `checks[]` 里写明 `by`（谁）与 `at`（YYYY-MM-DD）——目前 0 条，只能靠核对记录一条条攒 |
+| 可定位 locatable | `sources` 里出现了能直接翻到的位置：篇目／卷册／节页／年月日／链接 |
+| 仅书名 titled | 有 `sources` 但一条定位线索都没有：写得出书名，翻不到内容 |
+| 无出处 unsourced | `sources` 为空。当线索看，不要当依据用 |
+
+当前实测分布：可定位 3430 ／ 仅书名 1480 ／ 已核 0 ／ 无出处 0（共 4910）。
+**引用本站时请把等级一起带走**：把「仅书名」级的叙述当已核事实转述，是本站最不希望看到的用法。
+
+## 1. 深链协议（不需要坐标）
+
+地址形如 `https://<site>/index.html#/<路由>`。路由是 hash，因此**首屏不依赖服务端**，
+但搜索引擎索引请用 `topics/` 下的静态页（见第 3 节）。
+
+| 目的 | 形式 | 例 |
+| --- | --- | --- |
+| 打开一条事件 | `#/event/<id>` | `#/event/cn--b221--p01` |
+| 某年档案 | `#/year/<y>`（公元前用负数，无公元 0 年） | `#/year/-100` |
+| 时间轴视野 | `#/view/<from>/<to>` | `#/view/-221/220` |
+| 同年中西对照 | `#/compare/<y>` | `#/compare/1789` |
+| 主题时间线 | `#/theme/<id>` | `#/theme/silkroad` |
+| 把一组条目铺成可通读的长河 | `#/river/<关键词>` | `#/river/匈奴` |
+| **地点页**（此地 4000 年） | `#/place/<地名key>`，可带 `?year=` | `#/place/xian?year=741` |
+| **人物行迹页** | `#/person/<key>` | `#/person/suwu` |
+| **舆图** | `#/atlas?year=&place=&journey=&embed=1` | `#/atlas?year=-100&place=beikal` |
+
+`place` 参数接受中文古称、别名、今名与拼音式写法，由本站地名表解析；
+调用方**不需要也不应该自己猜经纬度**。
+
+## 2. MCP 工具（`node scripts/mcp-server.mjs`）
+
+零依赖 stdio JSON-RPC 2.0，可直接挂进 Claude Desktop / Cursor / Gemini CLI 的 `mcpServers`：
+
+```json
+{"mcpServers": {"chronicle": {"command": "node", "args": ["/绝对路径/chronicle/scripts/mcp-server.mjs"]}}}
+```
+
+| 工具 | 作用 | 返回里必带的东西 |
+| --- | --- | --- |
+| `inspect_event` | 按条目 id 取完整记录 | `sources`、`checks`、`provenance{key,label,why}` |
+| `search_events` | 关键词检索，可按轨道／维度／年区间／重要度／**溯源下限**过滤 | 同上 |
+| `place_at` | 给古今地名（+可选年区间），返回该地条目 | 地名出处 + 每条的 `provenance` |
+| `person_events` | 给人名，返回其条目与策展行迹（若有） | 行迹每站的 `src` 或语料条目 id |
+| `compare_year` | 同一年中国与世界各收录了什么 | 双轨清单与等级 |
+| `atlas_stats` | 本站规模、地理覆盖率、溯源构成 | 用于判断「这批数据够不够格被引用」 |
+
+`search_events` 支持 `minTier: "locatable"`——这是本站给 Agent 的关键用法：
+**只要查得到的那些**。
+
+## 3. 静态专题页（给搜索引擎与引用者）
+
+`topics/` 下由 `tools/gen-topics.mjs` 从语料现算生成，页内每条事实自带出处，生成器不写判断：
+
+- `place-<key>.html` — 地点页：别名、坐标、地名识别参考、此地全部落点条目与溯源构成
+- `era-<id>.html` — 时代页：该时代条目清单与 4 级以上条数
+- `journey-<key>.html` — 行迹页：站点、年代、每站出处或语料条目 id
+- `index.html` — 专题目录；`sitemap.xml` 在站点根
+
+改数据后必须重跑 `node tools/gen-topics.mjs`（换域名要显式传 `--base`）。
+
+## 4. 嵌入
+
+```html
+<iframe src="https://<site>/index.html#/atlas?year=-100&place=beikal&embed=1"
+        width="100%" height="520" style="border:0" title="时间长河 · 前100年 北海"></iframe>
+```
+
+`embed=1` 收起与本站无关的控件，只留图与年份条。微信、知乎、小红书不支持 iframe，请改分享纯链接。
+
+## 5. 口径与边界（引用前请读）
+
+- **图为示意**：底图只有海岸线与自绘水系，**不画现代国界与省界**；「山河大势」是墨色示意面 + 进退箭头，
+  标注「非精确疆界」，不作为疆域与主权依据。
+- **拓片、器物、古城位置只标收藏与内容**，不据此指认墓主或事件。
+- 前 841 年（共和行政）之前的中国纪年属学界推定，条目带 `yearApprox`，界面显示为 `~前xxxx年`。
+- 古今地名识别参考谭其骧主编《中国历史地图集》（取结论，未复制其图幅）；坐标为现代市区位置，作者自绘。
+- 当代条目（1949 后）只收可溯源事实，不作价值判断；全站只陈述事实与出处，不做价值排序。
+- 主题时间线由关键词匹配生成，不是人工维护的事件清单；命中为空的主题会显示 0 节点。

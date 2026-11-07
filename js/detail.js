@@ -25,7 +25,7 @@
       '<div class="d-body" id="d-body" tabindex="0"></div>';
     document.body.appendChild(panel);
     panel.addEventListener("click", function (e) {
-      var b = e.target.closest("[data-act],[data-ev],[data-year],[data-dim],[data-tag],[data-tl],[data-tk]");
+      var b = e.target.closest("[data-act],[data-ev],[data-year],[data-dim],[data-tag],[data-tl],[data-tk],[data-st],[data-st-person],[data-st-loadall],[data-ch],[data-ch-loadall]");
       if (!b) return;
       var act = b.getAttribute("data-act");
       if (act === "close") { close(); history.back && location.hash && (location.hash = "#/timeline"); return; }
@@ -38,6 +38,11 @@
       if (b.hasAttribute("data-tag")) { window.ChronSearch && ChronSearch.query(b.getAttribute("data-tag")); return; }
       if (b.hasAttribute("data-tl")) { window.ChronThemes && ChronThemes.openById(b.getAttribute("data-tl")); return; }
       if (b.hasAttribute("data-tk")) { window.ChronState && S.soloTrack(b.getAttribute("data-tk")); return; }
+      /* 故事卡上的 st-* 是这个模块看不懂的记号，交回故事层处置；
+       * 判据放在最后一条，前面的 data-ev 之类才不会把故事的跳转抢走。 */
+      if (window.ChronStory && ChronStory.handleDetailClick(b)) return;
+      /* 涟漪卡上的 ch-* 同样归涟漪层：data-ch 要开的是抽屉里的某一条链。 */
+      if (window.ChronChain && ChronChain.handleDetailClick(b)) return;
     });
     /* 面板只在这里建一次，订阅也只挂一次。
      * 重画判据向 state.js 的 filterChanged 要：它恰好等于 passesFilter 读到的那几个键。
@@ -120,6 +125,14 @@
      * 留两个点了没反应的按钮比不画更糟。 */
     if (window.ChronContribute) html += ChronContribute.bar(ev);
 
+    /* 小故事挂在出处与投稿之后、同年对照之前：读者先看完「这条凭什么」，
+     * 再读本站的复述，顺序反了就成了先讲故事再补出处。同样懒取、缺席不画。 */
+    if (window.ChronStory) html += ChronStory.block(ev);
+
+    /* 涟漪挂在小故事之后：小故事说的是「当时那人手上是什么情形」，涟漪说的是
+     * 「这件事后来牵动了什么」，顺序反了就成了先讲余波再讲本体。同样懒取、缺席不画。 */
+    if (window.ChronChain) html += ChronChain.block(ev);
+
     /* 同年对照 */
     html += compareBlock(ev);
 
@@ -132,6 +145,9 @@
 
     /* 上下文窗口 ±5 年 */
     html += contextBlock(ev);
+
+    /* 此后：三年后 / 三十年后 / 这些人后来 */
+    html += laterBlock(ev);
 
     /* 主题线归属 */
     var ths = window.ChronThemes ? ChronThemes.ofEvent(ev.id) : [];
@@ -192,6 +208,103 @@
         return '<li class="ev" data-ev="' + esc(e.id) + '"><i class="dot" style="background:' + d.color + '"></i>' +
           "<b>" + esc(M.tracks[e.track].short + "·" + e.title) + (PV ? PV.badge(e) : "") + '</b><span class="yr">' + esc(T.formatYear(e.year, { approx: e.yearApprox })) + "</span></li>";
       }).join("") + "</ul></div>";
+  }
+
+  /* 「此后」钩子：把一条详情读成五条的入口。候选全部由年序与人物名现算，不读 related
+   * ——跨轨 related 边只占 2.8%，若拿它当依据，大多数条目这一格永远空着。
+   * 三条纪律：
+   * ① 窗口里没有候选就不出这一格，绝不拿二十年后的事来充当「三年后」；
+   * ② 标题只承诺窗口，行内给实年，读者可以自己验算年差；
+   * ③ 排的是时间不是因果，所以文末必须写明这一点（因果是另一层的事，要带出处才敢说）。 */
+  function ahead(ev, lo, hi, opts) {
+    opts = opts || {};
+    var out = [];
+    var list = L.eventsIn(ev.year + lo, ev.year + hi);
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i];
+      if (e.id === ev.id || (opts.exclude && opts.exclude[e.id])) continue;
+      if (!opts.crossTrack && e.track !== ev.track) continue;
+      if (opts.sameDim && e.dim !== ev.dim) continue;
+      if (!S.passesFilter(e)) continue;
+      out.push(e);
+    }
+    if (opts.farFirst) {
+      out.sort(function (a, b) { return b.year - a.year || b.weight - a.weight; });
+    } else {
+      out.sort(function (a, b) { return a.year - b.year || b.weight - a.weight; });
+    }
+    return out;
+  }
+
+  /* 三格各取多少：3 / 2 / 3。抽成一张表，测试与界面读的是同一份，
+   * 免得「界面写 3、测试写 2」这种两边各自成立的样子。 */
+  var LATER_CAPS = { three: 3, thirty: 2, people: 3 };
+
+  /* 三格的时间窗（年差，含两端）。抽成一张表而不是写死在调用处：名额只有两三个，
+   * 把上界偷偷放宽未必挤得进结果，测试照旧全绿——表与测试各写一份年份，改表必红才拦得住。 */
+  var LATER_WINDOWS = { three: [1, 3], thirty: [4, 30], people: [1, 30] };
+
+  /* 选候选：只挑，不渲染。窗口边界、自身排除、同轨/同维、溯源门槛、三格互不重复
+   * 这五件事全在这里，所以单测可以把它整个跑一遍而不必造 DOM。 */
+  function laterPick(ev) {
+    var W = LATER_WINDOWS;
+    var three = ahead(ev, W.three[0], W.three[1], {});
+    var seen = {};
+    var out = { three: three.slice(0, LATER_CAPS.three), thirty: [], people: [] };
+    out.three.forEach(function (e) { seen[e.id] = 1; });
+
+    /* 「三十年后」从窗口远端取起。若仍按最近的先取，这一格永远只会给出「四年后、五年后」，
+     * 标题上的「三十年」就成了空话——读者点开一看，离本条才四年，那前面两句真话也不可信了。
+     * 选远端、再按年序显示：承诺的是年代，读起来还是编年。 */
+    var thirty = ahead(ev, W.thirty[0], W.thirty[1], { sameDim: true, exclude: seen, farFirst: true });
+    out.thirty = thirty.slice(0, LATER_CAPS.thirty);
+    out.thirty.sort(function (a, b) { return a.year - b.year || b.weight - a.weight; });
+    out.thirty.forEach(function (e) { seen[e.id] = 1; });
+
+    var figs = {};
+    ((ev.detail && ev.detail.figures) || []).forEach(function (f) { figs[f] = 1; });
+    if (Object.keys(figs).length) {
+      var cand = ahead(ev, W.people[0], W.people[1], { crossTrack: true, exclude: seen });
+      for (var i = 0; i < cand.length && out.people.length < LATER_CAPS.people; i++) {
+        var fs = (cand[i].detail && cand[i].detail.figures) || [];
+        for (var j = 0; j < fs.length; j++) {
+          if (figs[fs[j]]) { out.people.push(cand[i]); seen[cand[i].id] = 1; break; }
+        }
+      }
+    }
+    return out;
+  }
+
+  function laterEmpty(p) { return !p.three.length && !p.thirty.length && !p.people.length; }
+
+  function laterBlock(ev) {
+    var pick = laterPick(ev);
+    if (laterEmpty(pick)) return "";
+
+    var parts = [];
+    function sub(head, list) {
+      if (!list.length) return;
+      parts.push('<div class="para"><h5>' + head + '</h5><ul class="list tight">' +
+        list.map(function (e) { return rowFor(e, true); }).join("") + "</ul></div>");
+    }
+    sub("三年后 · 同轨紧接着", pick.three);
+    sub("三十年后 · 同轨同维", pick.thirty);
+    sub("这些人后来 · 三十年内同名人物", pick.people);
+
+    /* 视窗优先加载时，未来那段分片可能还没到：这时候「窗口里没有」有可能是
+     * 「还没载入」，不能把它说成本库没有——照实报载入比例。 */
+    var st = L.stats ? L.stats() : null;
+    var partial = st && st.totalChunks && st.loadedChunks < st.totalChunks;
+    /* 窗口数字一律从 LATER_WINDOWS 取，不在句子里再抄一遍：这一句是对读者的承诺，
+     * 表改了话没改，页面就开始报假的年差——而两边各自都「对得上自己的出处」。 */
+    var W = LATER_WINDOWS;
+    parts.push('<div class="para"><div class="d-hint">「三年后」取本条之后 ' + W.three[0] + '–' + W.three[1] + ' 年的同轨条目，' +
+      '「三十年后」取 ' + W.thirty[0] + '–' + W.thirty[1] + ' 年且同一维度（从最远的年开始往回收，所以它真是几十年后），' +
+      '「这些人后来」按人物名相交取 ' + W.people[0] + '–' + W.people[1] + ' 年。' +
+      '窗口里没有就不列。都是按年序现算的邻近，不是因果。' +
+      (partial ? "（全库分片只载入 " + st.loadedChunks + "/" + st.totalChunks +
+        "，未载入部分不参与查找。）" : "") + "</div></div>");
+    return parts.join("");
   }
 
   /* ---------- 年份档案页 ---------- */
@@ -360,6 +473,11 @@
 
   window.ChronDetail = {
     openEvent: openEvent, openYear: openYear, close: close, isOpen: isOpen, step: step,
-    flash: flash, get mode() { return mode; }
+    flash: flash, get mode() { return mode; },
+    /* 选候选这一段是纯算式（只读 Loader/State），留给单测：窗口边界、自身排除、
+     * 同轨同维、溯源门槛、三格互不重复——这几条错了页面不会报错，
+     * 只会静默给出一个假邻近或悄悄少一格。 */
+    ahead: ahead, laterPick: laterPick, laterBlock: laterBlock,
+    LATER_CAPS: LATER_CAPS, LATER_WINDOWS: LATER_WINDOWS
   };
 })();

@@ -1,0 +1,80 @@
+/* today.css | 「历史上的今天」抽屉
+ *
+ * 版式只服务一件事：让「这个日子是从哪儿来的」一眼可见。
+ * 四层的 how 标记（正文/经过段/出处/中文纪日）不用色相排高下——出处纪日与事件纪日
+ * 是两类东西，不是好坏两档；用边框线型与字面措辞区分，灰阶截图与色觉障碍下仍要分得清。
+ */
+
+body.today-open .detail { right: 520px; }
+.td-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 520px; max-width: 94vw; z-index: 47;
+  display: flex; flex-direction: column;
+  background: var(--bg-panel); border-left: 1px solid var(--rule); box-shadow: var(--shadow);
+}
+/* 同 story.css：本类的 display:flex 与 UA 的 [hidden] 同权重且作者样式胜出，少这一条就关不掉 */
+.td-drawer[hidden] { display: none; }
+
+.td-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--rule-soft); }
+.td-crumb { flex: 1 1 auto; font: 600 12px/1.4 var(--font-sans); color: var(--ink); }
+.td-crumb b { font-size: 14px; }
+.td-count { margin-left: 8px; font: 400 11px/1.4 var(--font-sans); color: var(--ink-faint); }
+.td-tools { display: flex; gap: 4px; }
+.td-tools button {
+  padding: 4px 8px; background: var(--bg-elev); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: var(--r-sm); font: 400 11px/1 var(--font-sans); cursor: pointer;
+}
+.td-tools button:hover { background: var(--bg-hover); }
+
+.td-body { flex: 1 1 auto; overflow: auto; padding: 10px 12px; outline: none; }
+.td-foot { flex: 0 0 auto; padding: 8px 12px 10px; border-top: 1px solid var(--rule-soft); }
+
+.td-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 10px; }
+.td-lab { font: 600 10px/1.5 var(--font-sans); letter-spacing: .1em; color: var(--ink-faint); margin-right: 2px; }
+.td-pill {
+  padding: 2px 8px; background: none; border: 1px solid var(--rule); border-radius: 999px;
+  color: var(--ink-soft); font: 400 11px/1.6 var(--font-sans); cursor: pointer;
+}
+.td-pill:hover { border-color: var(--ink-faint); color: var(--ink); }
+
+.td-it {
+  display: flex; align-items: flex-start; gap: 8px; padding: 9px 0;
+  border-top: 1px solid var(--rule-soft); cursor: pointer;
+}
+.td-it:first-child { border-top: 0; }
+.td-it:hover .td-c b { color: var(--link); }
+.td-y { flex: 0 0 74px; display: flex; flex-direction: column; font: 600 13px/1.3 var(--font-sans); color: var(--ink); }
+.td-y em { font: 400 10.5px/1.5 var(--font-sans); color: var(--ink-soft); font-style: normal; }
+.td-y i { font: 400 10px/1.5 var(--font-sans); color: var(--ink-faint); font-style: normal; }
+.td-g { flex: 0 0 auto; font-size: 13px; line-height: 1.4; }
+.td-c { flex: 1 1 auto; min-width: 0; }
+.td-c b { display: block; font: 600 13.5px/1.5 var(--font-serif); color: var(--ink); }
+.td-m { display: block; margin-top: 2px; font: 400 11.5px/1.7 var(--font-sans); color: var(--ink-soft); }
+.td-m i { font-style: normal; font-weight: 600; }
+/* 性质标记放在行尾而不是标题前：读者先看到发生了什么，再看这个日子凭什么算数 */
+.td-h {
+  flex: 0 0 auto; align-self: flex-start; margin-top: 2px; padding: 1px 7px;
+  font: 400 10px/1.6 var(--font-sans); color: var(--ink-soft);
+  border: 1px solid var(--rule); border-radius: var(--r-sm); white-space: nowrap;
+}
+.td-h.how-src { border-style: dashed; color: var(--ink-faint); }
+.td-h.how-text-cn { border-style: dotted; }
+
+.td-sec { margin-top: 14px; }
+.td-sec h4 { margin: 0 0 4px; font: 600 11px/1.6 var(--font-sans); letter-spacing: .06em; color: var(--ink-faint); }
+
+.td-bad {
+  margin: 8px 0; padding: 9px 11px; background: var(--bg-elev);
+  border-left: 3px solid var(--rule); border-radius: var(--r-sm);
+  color: var(--ink-soft); font: 400 11.5px/1.75 var(--font-sans);
+}
+.td-empty { border-left-color: var(--gold); }
+
+.td-note { margin: 0 0 6px; font: 400 10.5px/1.7 var(--font-sans); color: var(--ink-faint); }
+.td-note code { font: 400 10.5px/1.6 var(--font-mono); color: var(--ink-soft); }
+.td-note.td-warn { color: var(--ink-soft); border-left: 2px solid var(--rule); padding-left: 8px; }
+
+@media (max-width: 720px) {
+  body.today-open .detail { right: 0; }
+  .td-drawer { width: 100vw; max-width: 100vw; }
+  .td-y { flex-basis: 64px; }
+}

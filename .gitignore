@@ -12,3 +12,6 @@ data/dup-plan.json
 # related-cross.mjs 靠它拒绝重复补边，test-related-candidates.mjs 拿它当不变量的输入。
 
 .DS_Store
+
+# 逐批次的一次性取证/编辑脚本（点名绝对路径与 /tmp 缓存，不构成任何一道门）
+tools/.*.mjs

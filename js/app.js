@@ -157,7 +157,38 @@
     $("btn-river").addEventListener("click", function () {
       ChronRiver.isOpen() ? ChronRiver.close() : ChronRiver.open({});
     });
+    $("btn-frame").addEventListener("click", function () {
+      if (window.ChronFrame && ChronFrame.isOpen()) { ChronFrame.close(); }
+      else if (window.ChronFrame) { ChronFrame.open(); }
+    });
+    /* 故事层走路由而不是直接 open：这样按钮打开的抽屉有可分享的 hash，
+     * 关掉时也只是回到时间轴，router 的兜底分支会把抽屉收掉。 */
+    $("btn-story").addEventListener("click", function () {
+      if (window.ChronStory && ChronStory.isOpen()) { ChronStory.close(); }
+      else if (window.ChronRouter) ChronRouter.go("#/story");
+    });
+    /* 涟漪同走路由：#/chain/ch-ancient-001 是要能分享的链接，
+     * 而按钮与快捷键共用一条路径才不会把屏幕和地址栏过成两个状态。 */
+    $("btn-chain").addEventListener("click", function () {
+      if (window.ChronChain && ChronChain.isOpen()) { ChronChain.close(); }
+      else if (window.ChronRouter) ChronRouter.go("#/chain");
+    });
+    /* 「今天」同走路由：地址栏里的 #/today/11/6 是要能分享的链接。 */
+    $("btn-today").addEventListener("click", function () {
+      if (window.ChronToday && ChronToday.isOpen()) { ChronToday.close(); }
+      else if (window.ChronRouter) ChronRouter.go("#/today");
+    });
+    /* 舆图入口：带着当前视野的中心年份进去，读者不用二次定位。
+     * 载入地理层要一点时间，按钮先亮起来，避免「点了没反应」。 */
+    $("btn-atlas").addEventListener("click", function () {
+      if (ChronAtlas.isOpen()) { ChronAtlas.close(); syncToggles(); return; }
+      var v = S.get().view;
+      ChronAtlas.open({ year: Math.round((v.from + v.to) / 2) }).then(function () { syncToggles(); });
+    });
     window.addEventListener("chronicle:river", syncToggles);
+    window.addEventListener("chronicle:story", syncToggles);
+    window.addEventListener("chronicle:chain", syncToggles);
+    window.addEventListener("chronicle:today", syncToggles);
     syncRangeUI();
   }
 
@@ -359,6 +390,11 @@
     });
     $("btn-theme").textContent = st.theme === "dark" ? "深墨" : "宣纸";
     $("btn-river").classList.toggle("on", !!(window.ChronRiver && ChronRiver.isOpen()));
+    $("btn-atlas").classList.toggle("on", !!(window.ChronAtlas && ChronAtlas.isOpen()));
+    $("btn-frame").classList.toggle("on", !!(window.ChronFrame && ChronFrame.isOpen()));
+    $("btn-story").classList.toggle("on", !!(window.ChronStory && ChronStory.isOpen()));
+    $("btn-chain").classList.toggle("on", !!(window.ChronChain && ChronChain.isOpen()));
+    $("btn-today").classList.toggle("on", !!(window.ChronToday && ChronToday.isOpen()));
     /* 下拉必须跟着状态走：抽屉里的「放宽到全部来源」改的是同一个值，
      * 不同步就会出现「已经放宽了、控件还指着最严那格」。 */
     var pf = $("prov-floor");

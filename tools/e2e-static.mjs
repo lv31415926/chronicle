@@ -85,6 +85,21 @@ for (let i = 0; i < inline.length; i++) {
   }
 }
 
+/* 整行注释（含块注释体内的行）不参与顺序判定。
+ * 为什么要显式排掉：模块头普遍写着「发布：window.ChronX」这类说明，
+ * 把它当成加载期读取会让门为一行散文变红——噪声门的下场是被人改写注释绕过，
+ * 而不是有人去修脚本顺序。真正的读取发生在代码行，那条路径保持原样照抓。 */
+function blankLineComments(src) {
+  let inBlock = false;
+  return src.split("\n").map((line) => {
+    const t = line.trim();
+    if (inBlock) { if (t.includes("*/")) inBlock = false; return ""; }
+    if (t.startsWith("/*")) { if (!t.includes("*/")) inBlock = true; return ""; }
+    if (t.startsWith("//") || t.startsWith("*")) return "";
+    return line;
+  }).join("\n");
+}
+
 /* ④ 脚本顺序 vs window.Chron* 读取顺序（只算顶层读取，函数体内的延迟读取不算） */
 const PUB = /window\.(Chron[A-Za-z]*)\s*=/g;
 /* (?!=) 排除赋值左值：`window.ChronTime = {` 这一行同时命中 PUB 和 READ，
@@ -98,7 +113,7 @@ const READ = /window\.(Chron[A-Za-z]*)\b\s*(?!=)/g;
  * 使 CHRON_ORDER 变成永不变红的死门。深度 >=2 在函数体内，属延迟读取，不算。 */
 function depthLines(src) {
   let depth = 0;
-  return src.split("\n").map((line) => {
+  return blankLineComments(src).split("\n").map((line) => {
     const d = depth;
     for (const ch of line) { if (ch === "{") depth++; else if (ch === "}") depth = Math.max(0, depth - 1); }
     return { d, line };

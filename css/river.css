@@ -1,5 +1,9 @@
 /* river.css | 全屏「长河」梳理视图 */
 
+/* 同 .atlas：长河靠 hidden 收起，下面的 display:flex 会压过 UA 的 [hidden]，
+ * 少这一条就是关掉以后整屏仍被它挡住。 */
+.river[hidden] { display: none; }
+
 .river {
   position: fixed; inset: 0; z-index: 38;
   display: flex; flex-direction: column;

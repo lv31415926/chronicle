@@ -6,29 +6,44 @@
  * 或者被静默压死，两种都是产品事故。
  *
  * 分级不存字段，全部由证据现算：存了标签就有人会手改，改完没有任何门知道。
- * 唯一的例外是 checks——那是人留下的核对记录，只能新增，不能自封。
+ * 唯一的例外是 checks——那是核对记录，只能新增，不能自封。记录者可以是人，也可以
+ * 是本站跑的工具（逐字比对某一部电子书），但两者都得在 by 里写明「核的是哪一处」：
+ * 一句「已核对」不指向任何位置，读者仍然查不到，就不配抬到「已核」这一档。
  */
 (function () {
   "use strict";
 
-  /* 五类「能直接翻到」的定位证据。前四类判据来自对 11597 条真实出处的形态统计；
+  /* 六类「能直接翻到」的定位证据。前四类判据来自对 11597 条真实出处的形态统计；
    * link 是唯一例外——精选语料里 0 命中（全库无 URL），它是给公开投稿留的口子，
    * 由 tools/test-units.mjs 的规则↔语料对账看着，语料一旦漂进 URL 会当场变红要求复核。
-   * 刻意不含「(1991)」这类括号年份：它多半是出版年而非位置，算进来会虚增可核度。 */
+   * 刻意不含「(1991)」这类括号年份：它多半是出版年而非位置，算进来会虚增可核度。
+   *
+   * numbered（著录编号）是第六类，补的是一个真实盲区：甲骨、金文、古典史籍的定位习惯
+   * 就是「书名＋编号」，不带「卷／第／页」——《甲骨文合集》6412、《殷周金文集成》10175、
+   * 希罗多德《历史》1.96、《盎格鲁-撒克逊编年史》878 条、《形而上学》983b。
+   * 读者照着这些串确实翻得到东西，判据却把它们算成「仅书名」，等于假装查不到。
+   * 代价是它最容易被年份冒充，所以六个分支都各带一道反向闸门：连列用顿号/小数点、
+   * 或数字后跟单元词（章条款篇号节项）、或数字后跟字母（Bekker 号）、或数字直接接汉字；
+   * 而「1912—1913年」「1952年9月」「1818/1831年版」「1880至1895年」这类年跨度一律不算——
+   * 那年份的活儿归 dated 那一类管，它只认完整的年月日。
+   * 第六个分支是「年第N期」（《文物》1975年第11期 这类发掘简报与评论）：它和上面那些
+   * 年跨度只差一个「期」字，却是读者真能照着走到那一本的的位置；只给年（1975年）或
+   * 只给期（第5期）都不算——一期一年二十几本，期号年年复用。 */
   var KINDS = [
     { key: "chapter", label: "篇目", re: /《[^》]+·[^》]+》/ },
     { key: "juan", label: "卷册", re: /[卷册部编]\s*[一二三四五六七八九十百千零〇两0-9]+|第\s*[一二三四五六七八九十百千零〇两0-9]+\s*[卷册部编]/ },
     { key: "section", label: "节页", re: /第\s*[一二三四五六七八九十百千零〇两0-9]+\s*[节章条页]|[:：]\s*\d{1,4}\s*[-—]\s*\d{1,4}|\bp\.?\s*\d{1,4}\b/i },
     { key: "dated", label: "日期", re: /\d{3,4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日/ },
+    { key: "numbered", label: "著录编号", re: /》\s*\d{1,6}(?:\s*[、,，.．]\s*\d{1,6})+|》\s*\d{1,6}\s*(?:[—–~－]|至)\s*\d{1,6}\s*[章条款篇号节项]|》\s*\d{1,6}\s*[章条款篇号节项]|》\s*\d{1,4}[a-z](?![a-z])|》\s*\d{2,6}(?![\d.])[^\s\d年月日—–~－/、，.．)）】至与]|》\s*\d{1,4}\s*年第\s*[0-9一二三四五六七八九十]{1,3}\s*期/ },
     { key: "link", label: "链接", re: /https?:\/\/|www\.|\bISBN\b/i }
   ];
 
   /* 标签只声称「可核到什么程度」，绝不声称真假——没人有资格替历史担保真假。 */
   var TIERS = [
-    { key: "verified", label: "已核", hint: "有人核过原文", cls: "pv-verified",
-      desc: "有人留下核对记录：写明谁、何时、查的是哪一处" },
+    { key: "verified", label: "已核", hint: "记录写明核在哪一处", cls: "pv-verified",
+      desc: "有人或本站工具留下核对记录：写明谁、何时、查的是哪一处。署名里不含位置的记录不算数" },
     { key: "locatable", label: "可定位", hint: "出处可翻到", cls: "pv-locatable",
-      desc: "出处给到能直接翻到的位置（篇目、卷册、节页、日期或链接），但尚无人核对过" },
+      desc: "出处给到能直接翻到的位置（篇目、卷册、节页、日期、著录编号或链接），但尚无人核对过" },
     { key: "titled", label: "仅书名", hint: "只写到书名", cls: "pv-titled",
       desc: "出处只写到书名，读者无法定位到具体段落，等于无法查证" },
     { key: "unsourced", label: "无出处", hint: "查无可查", cls: "pv-unsourced",
@@ -48,10 +63,23 @@
     return Array.isArray(c) ? c : [];
   }
 
-  /* 一条核对记录要能立住，必须留下「谁」和「哪天」；at 只收 ISO 日期，
-   * 因为下游要按它排序与过期判断，收 "2026年9月" 这种写法等于埋一颗哑雷。 */
+  /* 署名要指向「哪一处」，用的就是上面六类定位线索——但去掉「日期」这一类：
+   * by 里写 2026年9月20日 只回答「何时」，而「何时」已经有 at 字段专门管了。
+   * 留着日期，「张三（2026年9月20日核过）」就能冒充一条有位置的核对。 */
+  var CHECK_KINDS = KINDS.filter(function (k) { return k.key !== "dated"; });
+
+  function byHasLocator(by) {
+    var s = String(by == null ? "" : by);
+    for (var i = 0; i < CHECK_KINDS.length; i++) if (CHECK_KINDS[i].re.test(s)) return true;
+    return false;
+  }
+
+  /* 一条核对记录要能立住，必须留下「谁」「核的哪一处」和「哪天」；at 只收 ISO 日期，
+   * 因为下游要按它排序与过期判断，收 "2026年9月" 这种写法等于埋一颗哑雷。
+   * by 只写「某某核过」不够：那抬得起标签，抬不起读者的查证能力。 */
   function validCheck(c) {
     return !!c && typeof c.by === "string" && c.by.trim().length >= 1 &&
+      byHasLocator(c.by) &&
       typeof c.at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(c.at.trim());
   }
 
@@ -114,7 +142,7 @@
     var key = tierOf(e), ss = sourcesOf(e);
     if (key === "verified") {
       var cs = verifiedChecks(e).map(function (c) { return esc(c.by) + " 于 " + esc(c.at); });
-      return "已核对：" + cs.join("；") + "。核对记录列在下方。" +
+      return "已核对：" + cs.join("；") + "。署名里带的就是核对所用的那一处位置。" +
         "核对只针对「记述与所引出处是否相符」，不等于对这段历史下最终结论。";
     }
     if (key === "unsourced") return "没有任何来源。当作线索看，不要当作依据用。";
@@ -137,6 +165,7 @@
   window.ChronProv = {
     KINDS: KINDS, TIERS: TIERS, RANK: RANK,
     sourcesOf: sourcesOf, checksOf: checksOf, validCheck: validCheck,
+    byHasLocator: byHasLocator, CHECK_KINDS: CHECK_KINDS,
     verifiedChecks: verifiedChecks, locatorsOf: locatorsOf, hasLocator: hasLocator,
     tierOf: tierOf, labelOf: labelOf, clsOf: clsOf, stats: stats,
     rankOf: rankOf, floorLabel: floorLabel,

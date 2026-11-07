@@ -201,10 +201,45 @@
         window.ChronSearch && ChronSearch.close();
         window.ChronThemes && ChronThemes.close();
         /* 长河是底面：浮层还在时一次 Esc 只收浮层，否则用户点开的详情会把他甩出视图 */
+        if (!floating && window.ChronStory && ChronStory.isOpen()) { ChronStory.close(); break; }
+        if (!floating && window.ChronChain && ChronChain.isOpen()) { ChronChain.close(); break; }
+        if (!floating && window.ChronToday && ChronToday.isOpen()) { ChronToday.close(); break; }
+        if (!floating && window.ChronFrame && ChronFrame.isOpen()) { ChronFrame.close(); break; }
+        if (!floating && window.ChronAtlas && ChronAtlas.isOpen()) { ChronAtlas.close(); break; }
+        if (!floating && window.ChronPlaces && ChronPlaces.isOpen()) { ChronPlaces.close(); break; }
         if (!floating && window.ChronRiver) ChronRiver.close();
         break;
       case "r": case "R":
         if (window.ChronRiver) { ChronRiver.isOpen() ? ChronRiver.close() : ChronRiver.open({}); e.preventDefault(); }
+        break;
+      case "m": case "M":
+        if (window.ChronAtlas) {
+          if (ChronAtlas.isOpen()) ChronAtlas.close();
+          else { var vv = S.get().view; ChronAtlas.open({ year: Math.round((vv.from + vv.to) / 2) }); }
+          e.preventDefault();
+        }
+        break;
+      case "g": case "G":
+        if (window.ChronFrame) { ChronFrame.isOpen() ? ChronFrame.close() : ChronFrame.open(); e.preventDefault(); }
+        break;
+      case "s": case "S":
+        if (window.ChronStory) { ChronStory.isOpen() ? ChronStory.close() : ChronStory.open({}); e.preventDefault(); }
+        break;
+      case "b": case "B":
+        /* 涟漪走路由而不是直接 open：抽屉有按钮、快捷键、详情跳转三条入口，
+         * 只有一条改了 hash，另外两条就把地址栏和屏幕过成两个状态。 */
+        if (window.ChronChain) {
+          ChronChain.isOpen() ? window.ChronRouter.go("#/timeline") : window.ChronRouter.go("#/chain");
+          e.preventDefault();
+        }
+        break;
+      case "t": case "T":
+        /* 走路由而不是直接 open：抽屉有按钮、快捷键、深链三条入口，
+         * 只有一条改了 hash，另外两条就把地址栏和屏幕过成两个状态。 */
+        if (window.ChronToday) {
+          ChronToday.isOpen() ? window.ChronRouter.go("#/timeline") : window.ChronRouter.go("#/today");
+          e.preventDefault();
+        }
         break;
       case "/": window.ChronSearch && ChronSearch.open(); e.preventDefault(); break;
       case "[": case "]": {

@@ -9,7 +9,9 @@
 
   function list() { return (window.__CHRONICLE_THEMES || []); }
 
-  /* ---- 成员解析：用关键词对事件打分，避免手工维护 id 造成悬空引用 ---- */
+  /* ---- 成员解析：用关键词对事件打分，避免手工维护 id 造成悬空引用 ----
+   * ⚠ 这段评分口径被 tools/validate-achv.mjs 的 resolve() 复刻了一份（见 DATA_SCHEMA §14B）：
+   * 改这里的加权、起线或去冗规则，必须同步改那边，否则界面与成就门会各说各话且两边都绿。 */
   function resolve(th) {
     /* 缓存键必须带数据量：详情面板会在分片尚未加载完时调用 ofEvent，
      * 只按 th.id 缓存会把「当时可见的事件」算出的链条一直用下去，主题标签永久少报。 */
@@ -219,6 +221,8 @@
     if (!el) return;
     el.hidden = true;
     el.classList.remove("open");
+    /* #/theme/<id> 是 router 认得的地址：收了层却留着它，刷新就自己弹回来。 */
+    window.ChronRouter.resetHash(["#/theme"]);
     S.patch({ activeTheme: null });
   }
 

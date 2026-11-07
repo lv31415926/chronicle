@@ -18,7 +18,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DOCS = ["tools/DATA_SCHEMA.md", "README.md"];
+/* CONTRIBUTING.md 在 DOCS 里不是装饰：那份文档一旦举例引用条目 id，
+ * 就会随并档而失准，而读者是按它去翻原文的。 */
+const DOCS = ["tools/DATA_SCHEMA.md", "README.md", "CONTRIBUTING.md"];
 const ID_RE = /(?:cn|world)--b?\d+--[a-z]\d{2}/g;
 const WEIGHT_WINDOW = 24;          // 权重必须写在 id 后 24 字符内，否则视为「引用没给级」
 const JSON_OUT = process.argv.includes("--json");

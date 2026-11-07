@@ -1,0 +1,136 @@
+/* chain.css | 涟漪层：因果链抽屉与详情里的「此事牵出的涟漪」
+ *
+ * 这一层是全站唯一会被读者当成「史料的说法」的层，版式只服务一件事：
+ * 「有出处」与「本站的连接」必须一样醒目。所以两者靠线型分（实线/虚线），
+ * 不靠深浅分——把后者压成灰脚注，等于希望读者不去看它，而那正是本站最不该希望的。
+ *
+ * 每一环是一个可点回事实层的链接，边（claim）不是：边是本站写的句子。
+ * 因此排版必须让这两类东西形状不同——环靠左边框、带年份，边缩进、带右上角的标记。
+ */
+
+/* ============ 抽屉骨架 ============ */
+body.chain-open .detail { right: 520px; }
+.chain-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 520px; max-width: 94vw; z-index: 47;
+  display: flex; flex-direction: column;
+  background: var(--bg-panel); border-left: 1px solid var(--rule); box-shadow: var(--shadow);
+}
+/* 不能只靠 hidden 属性：本类的 display:flex 与 UA 的 [hidden] 同权重、且作者样式胜出，
+ * 少这一条就是「关掉以后抽屉还杵在右边」。 */
+.chain-drawer[hidden] { display: none; }
+.cy-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--rule-soft); }
+.cy-crumb { flex: 1 1 auto; font: 600 12px/1.4 var(--font-sans); color: var(--ink); }
+.cy-tools { display: flex; gap: 4px; }
+.cy-tools button {
+  padding: 4px 8px; background: var(--bg-elev); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: var(--r-sm); font: 400 11px/1 var(--font-sans); cursor: pointer;
+}
+.cy-tools button:hover { background: var(--bg-hover); }
+.cy-filters { flex: 0 0 auto; padding: 8px 12px; border-bottom: 1px solid var(--rule-soft); display: flex; flex-wrap: wrap; gap: 4px 0; }
+.cy-body { flex: 1 1 auto; overflow: auto; padding: 12px; outline: none; }
+
+.cy-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; }
+.cy-lab { font: 600 10px/1.5 var(--font-sans); letter-spacing: .1em; color: var(--ink-faint); margin-right: 2px; }
+.cy-pill {
+  padding: 2px 8px; background: none; border: 1px solid var(--rule); border-radius: 999px;
+  color: var(--ink-soft); font: 400 11px/1.6 var(--font-sans); cursor: pointer;
+}
+.cy-pill:hover { border-color: var(--ink-faint); color: var(--ink); }
+.cy-pill.on { background: var(--bg-hover); border-color: var(--ink-soft); color: var(--ink); }
+.cy-row button[data-ch-clear] {
+  padding: 2px 8px; background: none; border: 1px dashed var(--rule); border-radius: var(--r-sm);
+  color: var(--ink-soft); font: 400 11px/1.6 var(--font-sans); cursor: pointer;
+}
+.cy-legend {
+  margin: 0 0 12px; padding: 8px 10px; background: var(--bg-elev);
+  border-left: 3px solid var(--warn); border-radius: var(--r-sm);
+  color: var(--ink-soft); font: 400 11.5px/1.75 var(--font-sans);
+}
+.cy-bad { color: var(--ink-soft); font: 400 12px/1.7 var(--font-sans); padding: 10px 2px; }
+.cy-bad button { margin-top: 6px; padding: 3px 9px; background: var(--bg-elev); border: 1px solid var(--rule); border-radius: var(--r-sm); color: var(--ink); font: 400 11px/1.6 var(--font-sans); cursor: pointer; }
+
+/* ============ 一张链卡 ============ */
+.ch-card { padding: 10px 0; border-top: 1px solid var(--rule); }
+.ch-card:first-of-type { border-top: 0; padding-top: 2px; }
+.ch-top { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.ch-title { color: var(--ink); font: 600 14px/1.5 var(--font-serif); cursor: pointer; }
+.ch-title:hover { color: var(--link); }
+/* 跨度（「126 年间」）是这条链唯一的量，不能弱成装饰：它决定读者信不信这是几百年。 */
+.ch-part, .ch-span { color: var(--ink-soft); font: 400 11px/1.5 var(--font-sans); }
+.ch-span { font-family: var(--font-serif); }
+.ch-cross {
+  flex: 0 0 auto; padding: 1px 6px; border-radius: var(--r-sm);
+  font: 400 10px/1.6 var(--font-sans); border: 1px dashed var(--ink-faint); color: var(--ink-soft); cursor: help;
+}
+.ch-cross.on { border-style: solid; border-color: var(--link); color: var(--link); }
+.ch-min { cursor: pointer; }
+.ch-peek { margin: 3px 0 0; color: var(--ink-soft); font: 400 12.5px/1.7 var(--font-sans); }
+.ch-count { margin: 2px 0 0; color: var(--ink-faint); font: 400 10.5px/1.6 var(--font-sans); }
+
+/* 环：年份 + 可点回账本的条目标题 + 该条摘要 */
+.ch-ring {
+  display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap;
+  margin-top: 8px; padding-left: 9px; border-left: 2px solid var(--rule);
+}
+.ch-mark { border-left-color: var(--gold); }
+/* 环号与「据以连接的材料」这两处不给 --ink-faint：详情里的「在链上第 2、4 环」就靠环号对上，
+ * 而「据以连接的材料」是这一层唯一说明「这句话凭什么」的字。实测 faint 在深墨题下只有 3.5:1，
+ * 10px 的小字读到那个亮度，等于劝读者跳过——这正是本层最不该劝人跳过的两句。 */
+.ch-no { flex: 0 0 auto; color: var(--ink-soft); font: 600 10px/1.6 var(--font-sans); letter-spacing: .06em; }
+.ch-ring b { color: var(--ink); font: 600 13px/1.6 var(--font-serif); cursor: pointer; }
+.ch-ring b:hover { color: var(--link); }
+.ch-here { cursor: default !important; color: var(--gold-text) !important; }
+.ch-y { color: var(--ink-soft); font: 400 11.5px/1.5 var(--font-serif); }
+.ch-tk { color: var(--ink-faint); font: 400 10.5px/1.5 var(--font-sans); }
+.ch-sum { margin: 2px 0 0; width: 100%; color: var(--ink-soft); font: 400 11.5px/1.7 var(--font-sans); }
+.ch-orphan { border-left-color: var(--warn); color: var(--warn); font: 400 11.5px/1.6 var(--font-sans); }
+.ch-orphan button { margin-left: 6px; padding: 2px 8px; background: var(--bg-elev); border: 1px solid var(--rule); border-radius: var(--r-sm); color: var(--ink); font: 400 11px/1.5 var(--font-sans); cursor: pointer; }
+
+/* 边：这一边是谁在说（标记）+ 说了什么（本站的句子）+ 据以连接的材料名 */
+.ch-edge { margin: 6px 0 0 9px; padding: 7px 10px; background: var(--bg-elev); border-radius: var(--r-sm); }
+.ch-basis {
+  float: right; margin-left: 8px; padding: 1px 6px; border-radius: var(--r-sm);
+  font: 400 10px/1.6 var(--font-sans); cursor: help;
+}
+/* 线型第一通道、色相第二：两档必须同字号同饱和度，只换线型——
+ * 把「本站的连接」排得比「有出处」小或淡，就等于劝读者别看它。 */
+.ch-basis-gp { border: 1px solid var(--gold); color: var(--gold-text); }
+.ch-basis-self { border: 1px dashed var(--link); color: var(--link); }
+.ch-claim { margin: 0; color: var(--ink); font: 400 13px/1.8 var(--font-serif); }
+.ch-prov { margin-top: 5px; color: var(--ink-soft); font: 400 10.5px/1.7 var(--font-mono); }
+.ch-lab { margin-right: 6px; color: var(--ink-soft); font: 600 10px/1.7 var(--font-sans); letter-spacing: .06em; }
+.ch-prov code { color: var(--ink-soft); }
+
+.ch-caveat {
+  margin-top: 9px; padding: 7px 10px; border-radius: var(--r-sm);
+  background: var(--bg-elev); color: var(--ink-soft); font: 400 11.5px/1.7 var(--font-sans);
+}
+.ch-caveat { border-left: 3px solid var(--warn); }
+.ch-caveat p { margin: 0; }
+/* 只去掉小标签自己的盒子样式；字色不再单独压淡——「这条链哪里站不住」是本层最需要被读到的一句 */
+.ch-caveat .ch-lab { background: none; border: 0; padding: 0; }
+
+/* ============ 详情抽屉里的那一段 ============ */
+.detail .ch-block { padding-top: 10px; border-top: 1px solid var(--rule-soft); }
+.detail .ch-card { border-top: 0; padding: 9px 0; }
+.detail .ch-in { margin-top: 8px; padding-left: 8px; border-left: 1px dashed var(--rule); }
+.detail .ch-at { color: var(--gold-text); font: 600 10.5px/1.6 var(--font-sans); letter-spacing: .06em; }
+/* .detail .para p 把这一段压成了 --ink-soft（事实层的正文色）。同一条链在两处必须同色：
+ * 详情里读起来比抽屉里暗一档，读者会以为那是弱一档的内容。
+ * 选择器必须带上 .para：.detail .para p 的权重是「两类一型」，
+ * .detail .ch-claim 只有「两类」，写轻了这条根本压不住。 */
+.detail .para .ch-claim { color: var(--ink); font-size: 13px; }
+/* 「先后是有据的，因果是我们的推断」这句是这一层在详情里的信用说明，不是脚注：
+ * 不写这条，它在详情里跟着 .detail .para p 走正文号、在抽屉里却是小字，两处像两种东西。 */
+.detail .para .ch-note { color: var(--ink-soft); font-size: 11.5px; }
+.detail .para .ch-caveat p { font-size: 11.5px; line-height: 1.7; }
+.detail .para .ch-sum { color: var(--ink-soft); font-size: 11.5px; line-height: 1.7; }
+
+/* ============ 窄屏：抽屉改下半屏，详情回到满宽 ============ */
+@media (max-width: 720px) {
+  .chain-drawer { width: 100%; max-width: none; top: auto; height: 76vh; border-left: 0; border-top: 1px solid var(--rule); }
+  body.chain-open .detail { right: 0; }
+  .cy-head { padding: 8px 10px; }
+  .cy-body { padding: 10px; }
+  .ch-basis { float: none; display: inline-block; margin: 0 0 4px; }
+}

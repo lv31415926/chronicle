@@ -203,7 +203,14 @@
     el.classList.add("open");
   }
 
-  function close() { if (el) { el.hidden = true; el.classList.remove("open"); } }
+  function close() {
+    if (el) {
+      el.hidden = true;
+      el.classList.remove("open");
+      /* 同主题线：#/compare/<y> 是 router 认得的地址，留着它刷新就把已经关掉的一层再弹回来。 */
+      window.ChronRouter.resetHash(["#/compare"]);
+    }
+  }
   function isOpen() { return !!el && !el.hidden; }
   function open() { render(window.__cmpYear || currentYear()); }
 

@@ -11,6 +11,10 @@
 <link rel="stylesheet" href="css/layout.css">
 <link rel="stylesheet" href="css/components.css">
 <link rel="stylesheet" href="css/river.css">
+<link rel="stylesheet" href="css/atlas.css">
+<link rel="stylesheet" href="css/story.css">
+<link rel="stylesheet" href="css/chain.css">
+<link rel="stylesheet" href="css/today.css">
 </head>
 <body>
 
@@ -93,6 +97,11 @@
           <option value="last100">近 100 年</option>
           <option value="last500">近 500 年</option>
         </select>
+        <button class="tb-btn" id="btn-frame" title="看点：本站的编辑立场，每条主张都附条目原文与争议">看点</button>
+        <button class="tb-btn" id="btn-story" title="小故事：人物故事、朝代趣事。每条都标了性质（史载/笔记异闻/后世附会/出土档案）与底本 (S)">故事</button>
+        <button class="tb-btn" id="btn-chain" title="涟漪：大事的余波落在后来的小事上。每一边都标明是「有出处」还是「本站的连接」 (B)">涟漪</button>
+        <button class="tb-btn" id="btn-today" title="历史上的今天：只列条目正文里已写明某月某日的那些事，出处纪日单独标出 (T)">今天</button>
+        <button class="tb-btn" id="btn-atlas" title="舆图视图：把当前年代的事件落在海岸线底图上 (M)">舆图</button>
         <button class="tb-btn" id="btn-river" title="把当前筛选铺成全屏长河 (R)">长河视图</button>
       </div>
       <button class="tb-btn" id="btn-loadall" style="margin-left:auto">加载全部分片</button>
@@ -174,6 +183,8 @@
     <tr><td>Enter</td><td>打开当前选中条目的详情</td></tr>
     <tr><td>⌘K / Ctrl+K 或 /</td><td>检索</td></tr>
     <tr><td>R</td><td>打开 / 关闭全屏「长河」梳理视图</td></tr>
+    <tr><td>M</td><td>打开 / 关闭「舆图」视图</td></tr>
+    <tr><td>G</td><td>打开 / 关闭「看点」（本站编辑立场，附原文与争议）</td></tr>
     <tr><td>Shift+Enter（检索面板内）</td><td>把当前检索结果（或面板展示的里程碑）铺成长河</td></tr>
     <tr><td>Alt+点击维度</td><td>独显该维度</td></tr>
     <tr><td>Esc</td><td>依次关闭详情 / 气泡 / 检索 / 主题线，最后才退出长河</td></tr>
@@ -198,6 +209,66 @@
      检索面板的「铺成长河」（或 <kbd>Shift+Enter</kbd>）、主题线浮窗的「铺成全屏长河」、顶栏的长河按钮与 <kbd>R</kbd>。
      地址形如 <code>#/river/关键词</code>，可直接分享或回退。</p>
 
+  <h4>看点：本站有明确立场，但立场只在这一层</h4>
+  <p>顶栏「看点」（或 <kbd>G</kbd>）列出本站策展的成就条目。每张卡片把四件事摊在同一屏：
+     <b>本站主张</b>（编辑立场）、<b>条目原文</b>（逐字引自该条目的正文，由
+     <code>tools/validate-frame.mjs</code> 校验确实出现过）、<b>对照</b>（同期或后继的另一轨条目）、
+     <b>争议与限度</b>（反例、归因口径、不能说到哪里）。
+     事实层（标题、摘要、详情、出处）不因立场而改动；比较用了「最早／第一／领先／之最」，
+     就必须同时给出判据、范围与强度，强度不是「确证」的必须写争议。</p>
+
+  <h4>小故事：这一层自己写句子，所以把底本一并印在卡上</h4>
+  <p>顶栏「故事」（或 <kbd>S</kbd>）收录历史上的小故事、人物故事与朝代趣事，每条都挂在一条真实条目上，
+     卡上写明系年与「看条目出处」。四张卡最大的区别不是好不好看，而是<b>能不能当史料引用</b>——
+     <b>史载</b>（史书这样写了，不等于事就是这样）、<b>笔记异闻</b>（只有一份或少数几份记述，无从对校）、
+     <b>后世附会</b>（在流传里才成形，照样值得看，只是不能引用）、<b>出土文献与档案</b>（有实物或原件可指）。
+     引文分两种：<b>原文</b>逐字取自卡末列出的出处，且出处给到可直接翻到的篇目/卷册/节页/日期/著录编号；
+     <b>大意</b>是本站按原意转述，别当引文用。每张卡都带一句「为什么这样标」，
+     写清这条的记述凭什么、哪里存疑。正文复述一律是本站所写，不替史料说话。</p>
+  <p>点开任意条目详情的「此事的小故事」看到的是同一批卡；地址形如 <code>#/story/st-han-001</code> 可直接分享。</p>
+
+  <h4>涟漪：这一层在编因果，所以先把「谁在说这句话」摆在读者眼前</h4>
+  <p>顶栏「涟漪」（或 <kbd>B</kbd>）收录的是<b>大事的余波落在后来的小事上</b>这一类链条：一条链 3–6 环，
+     年份严格递增，末环（落点）必须是当时看来很小的事——落点本身是大事，那就只是另一份大事年表。
+     关键在每边连接右上角那两个字：<b>有出处</b>指本站据以连接的材料名，这个名字逐字出自这一边两端条目
+     自己列出的出处，印在边下方可以直接去翻，它说的是「据以连接」，<b>不是「史书这样写了这条因果」</b>；
+     <b>本站的连接</b>指这一边是本站连的——先后可考，没有哪份史料把这两件事说成一件事。
+     两种标记一样醒目，因为这一层最怕的就是读者把后者读成前者。每条链末尾那句「这条链哪里站不住」
+     是内容的一部分，不折叠、不做成脚注。<b>邻近不是因果</b>：同一批年表里挨着的事，本站不排成涟漪。</p>
+  <p>点开任意条目详情的「此事牵出的涟漪」会指出它在这条链的第几环；地址形如 <code>#/chain/ch-ancient-001</code> 可直接分享。</p>
+
+  <h4>此后：一条读成五条，但只承诺时间</h4>
+  <p>详情底部三格——<b>三年后</b>（本条之后 1–3 年、同一轨）、<b>三十年后</b>（4–30 年、同一轨且同一维度，
+     名额<b>从最远的年开始往回收</b>，所以这一格真是几十年后而不是五年后）、<b>这些人后来</b>（30 年内
+     与本条关键人物同名的条目，跨轨也算）。三格全由年份与人物名<b>现算</b>，不读 <code>related</code>，
+     也不写进数据；行内给出实年，年差可以当场验算。<b>它排的是时间，不是因果</b>——窗口里空着就不出这一格，
+     绝不拿一件更远的事来充数。</p>
+
+  <h4>历史上的今天：这一页一个日期都不生产</h4>
+  <p>顶栏「今天」（或 <kbd>T</kbd>）只列条目<b>自己的正文里已经写明某月某日</b>的那些事。月与日不是编辑手打的：
+     <code>tools/date-lib.mjs</code> 按「标题/摘要 → 经过段 → 出处」的顺序取数，且那个年份必须等于本条的年份；
+     同一年里出现两个不同日子就判歧义、整条不收（这一层由 <code>tools/validate-dates.mjs</code> 逐字复算，
+     生成的 <code>data/dates.js</code> 与正文口径不一致就是红）。所以每条右侧标了它凭什么进这一页——
+     <b>正文纪日</b>、<b>经过段纪日</b>、<b>出处纪日</b>（那是文书落款的那一天，不一定等于事情发生在这一天）、
+     <b>中文纪日</b>（原文写「十二月十三日」这类，只收 1912 年及以后：此前多半是农历，本库不做历表换算）。
+     这一天没有可核对的纪日，页面就照实说空着，只在下面列前后三日、并让每一条带着自己的日子出现。
+     地址里写了日历上没有的日子（<code>#/today/4/31</code>、<code>#/today/13/1</code>），页面会说这个日子不存在、
+     并把你送回今天——各月有几天这张表全站只有 <code>data/dates.js</code> 里的 <code>mdays</code> 一份，
+     谁自己抄一份就会和它打架。
+     早于 <b>1583</b> 年的公历日由后世历表推得（当时行儒略历），页脚会另说一句。</p>
+  <p>地址形如 <code>#/today/11/6</code> 可直接分享；「同一个号数」的一排按钮是别的月份的同一天；「铺成长河」把这一天摊成全屏。</p>
+
+  <h4>舆图 · 地点页 · 行迹</h4>
+  <p>顶栏「舆图」（或 <kbd>M</kbd>）把当前年代的事件落在海岸线底图上：朱砂是中国轨、石青是世界轨，
+     点落针开详情，点空白开该年档案。三种模式——<b>事件</b>（该年落针）、<b>行迹</b>（张骞 / 苏武 /
+     霍去病 / 玄奘 / 杜甫 / 苏轼的路线，站点年份可点）、<b>大势</b>（三个年份的势力范围示意 + 进退箭头，
+     只画该幅快照自己引用的那几条依据）。</p>
+  <p>底图<b>只有海岸线与自绘水系，不含现代国界与省界</b>；「山河大势」是示意墨面，图上写明非精确疆界。
+     区域级地名（语料只给到「今山西」这一级）画成软盘，不假装是精确落针。
+     地名与路线的出处在地点页与行迹页里逐条列出，未标「已核」的按本站口径只算「可查到哪一步」。</p>
+  <p>深链不需要坐标：<code>#/atlas?year=-100&amp;place=beikal</code>、<code>#/place/xian?year=741</code>、
+     <code>#/person/suwu</code>；地名写古称、别名、今名都行，由本站地名表解析。</p>
+
   <h4>数据与口径</h4>
   <p>每条事件带维度、重要度（1–5）、摘要、详情三段（背景/经过/影响）、关键人物、地点、政权与出处。
      公元前 841 年（共和行政）是中国有连续确切纪年之始，此前年代为学界推定值，一律以「~」标注。
@@ -213,6 +284,9 @@
 <script src="data/meta.js"></script>
 <script src="data/reign.js"></script>
 <script src="data/themes.js"></script>
+<!-- data/dates.js 是生成件（node tools/date-candidates.mjs --apply）：日层只从条目自己的文本里
+     取月日，本站任何界面都不手打日期，所以这一页也拿不到别的来源。 -->
+<script src="data/dates.js"></script>
 <script src="js/time.js"></script>
 <script src="js/state.js"></script>
 <script src="js/shapes.js"></script>
@@ -229,6 +303,14 @@
 <script src="js/themes.js"></script>
 <script src="js/search.js"></script>
 <script src="js/river.js"></script>
+<script src="js/geo.js"></script>
+<script src="js/atlas.js"></script>
+<script src="js/atlas-quiz.js"></script>
+<script src="js/places.js"></script>
+<script src="js/frame.js"></script>
+<script src="js/story.js"></script>
+<script src="js/chain.js"></script>
+<script src="js/today.js"></script>
 <script src="js/contribute.js"></script>
 <script src="js/interaction.js"></script>
 <script src="js/router.js"></script>

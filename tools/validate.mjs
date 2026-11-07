@@ -36,6 +36,13 @@ const TIER_FIELDS = ["tier", "prov", "provenance", "verified", "certified", "con
 /* 与 js/prov.js 的 validCheck 同一个口径：本门放行而前端不计数，
  * 投稿人就会看到「我填了核对记录，标签却没变」。两处正则由 test-units 对账。 */
 const CHECK_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/* 核对记录的 by 必须指向「哪一处」，否则「已核」这个标签承诺的是读者查不到的东西。
+ * 尺子与 js/prov.js 的 CHECK_KINDS 同一套（篇目/卷册/节页/著录编号/链接），刻意不含日期：
+ * 日期回答「何时」，那一维由 at 字段承担。两端各留一份、由 tools/test-units.mjs
+ * 逐串对账——与 CHECK_DATE_RE 同一做法，因为界面侧不能 import 本文件。
+ * numbered 那五支各带反向闸门，年跨度（1912—1913年 / 1880至1895年 / 1818/1831年版）
+ * 一律不算位置；它与 prov.js 的 KINDS 逐字相同，改一处必须改两处并跑对账。 */
+const CHECK_BY_LOC_RE = /《[^》]+·[^》]+》|[卷册部编]\s*[一二三四五六七八九十百千零〇两0-9]+|第\s*[一二三四五六七八九十百千零〇两0-9]+\s*[卷册部编]|第\s*[一二三四五六七八九十百千零〇两0-9]+\s*[节章条页]|[:：]\s*\d{1,4}\s*[-—]\s*\d{1,4}|\bp\.?\s*\d{1,4}\b|》\s*\d{1,6}(?:\s*[、,，.．]\s*\d{1,6})+|》\s*\d{1,6}\s*(?:[—–~－]|至)\s*\d{1,6}\s*[章条款篇号节项]|》\s*\d{1,6}\s*[章条款篇号节项]|》\s*\d{1,4}[a-z](?![a-z])|》\s*\d{2,6}(?![\d.])[^\s\d年月日—–~－\/、，.．)）】至与]|》\s*\d{1,4}\s*年第\s*[0-9一二三四五六七八九十]{1,3}\s*期|https?:\/\/|www\.|\bISBN\b/i;
 /* 长度上限的唯一出处是 tools/limits.mjs（validate / check / mcheck 共用同一份数值）。
  * 消息里再抄一遍数字是谎言的温床：改了常量不改文案，
  * 报告就会指着一个不存在的线让人去改数据。 */
@@ -237,6 +244,8 @@ for (const c of chunks) {
             (ck.note !== undefined && typeof ck.note !== "string");
           if (bad) E(c.id, "CHECK_SHAPE",
             `${at}: checks[${i}] 不合式——须有非空 by（谁核的）与 at（YYYY-MM-DD）；note 可选且须为字符串`);
+          else if (!CHECK_BY_LOC_RE.test(ck.by.trim())) E(c.id, "CHECK_BY_LOCATOR",
+            `${at}: checks[${i}].by「${ck.by.trim().slice(0, 40)}」没写明核在哪一处——只说有人核过，读者手上仍然查不到，这一档抬不起。by 须带篇目／卷册／节页／链接之一（日期只算「何时」，那一维归 at）`);
         });
         const srcN = d && Array.isArray(d.sources) ? d.sources.length : 0;
         if (e.checks.length && !srcN) W(c.id, "CHECK_WITHOUT_SOURCE",
@@ -313,6 +322,78 @@ if (dangling.length) {
   const why = !STRICT ? "未开 --strict，故按告警计" : "数据集仍有空分片，补链尚未开始";
   if (STRICT && datasetComplete) for (const d of dangling) E(d.chunk, "RELATED_DANGLING", `${d.from} → ${d.to}`);
   else W("ALL", "RELATED_DANGLING", msg + `（${why}；但断链本身与完整性无关，是缺陷）`);
+}
+
+/* ---------- 正文里的内联引用与相对年份 ----------
+ * 这两道门管的东西，RELATED_DANGLING 一点都看不见：它只读 related 数组，
+ * 而「（见 cn--xxxx）」写在散文里，读者照样点、照样按那句话换算年份。
+ * 2026-11-07 批次1j 落盘后实测：盘上 122 处内联引用无人对账（1 处指向已作废 id，
+ * 只在 checks.note 里，属历史记述，不算断链），另有 6 处「明年／又明年」的年差
+ * 算错（cn--b27--p01 以前27为锚写「明年」指向前25，cn--b32--p01 指向前29，
+ * cn--b28--x01、cn--b55--e02 同类），全靠一次性脚本扫出来。规则不进门，下一批照错。
+ *
+ * 判据：锚年 = 同一句内该词之前最后出现的「前N年／公元前N年／公元N年」，
+ * 句内无明确纪年时取本条 year；「明年｜次年」=+1、「又明年｜后年」=+2、
+ * 「后N年｜N年后」=+N；所引条目 year − 锚年 ≠ N 即报。
+ * 只在「相对词—（见 id）」同句、间隔 ≤30 字时配对：跨句配对实测会把
+ * 「捐之议罢珠崖之次年。……（见 cn--b48--e01）」这种相邻两句误算成一对。
+ * checks[].note 刻意不扫——那里写的正是「本条旧 id 作 cn--b53--e01」这类
+ * 作废 id 的历史记述，扫它等于逼作者把改坏的证据删掉。 */
+const INLINE_ID = String.raw`(?:cn|world)--b\d+--[pfscmeixad]\d{2}|(?:cn|world)--\d{1,4}--[pfscmeixad]\d{2}`;
+const REL_N = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+{
+  const relAlt = "又明年|明年|次年|后年|后(\\d{1,4}|[一二三四五六七八九十]{1,3})年|(\\d{1,4}|[一二三四五六七八九十]{1,3})年后";
+  /* 引用写成「（见 id）」的 80 处，写成裸「见 id」的 18 处——两种都得配对，
+   * 只查括号那种时 cn--b92--p01「二年后轮台诏…见 cn--b89--p01」（实三年）
+   * 与 cn--b60--f01「十一年后…见 cn--b51--a01」（实九年）都会静默过关。 */
+  const relRe = new RegExp(`(${relAlt})[^。；！？]{0,30}(?:（见|见)\\s*((${INLINE_ID})(?:、(${INLINE_ID}))*)`, "g");
+  const idRe = new RegExp(INLINE_ID, "g");
+  const yearMark = /(?:公元前?|前)(\d{1,4})年|公元(\d{1,4})年/g;
+  const toNum = (s) => (/^\d+$/.test(s) ? Number(s)
+    : s.length === 1 ? (REL_N[s] ?? null)
+    : s[0] === "十" ? 10 + (REL_N[s[1]] ?? 0)
+    : s[1] === "十" ? (REL_N[s[0]] ?? 0) * 10 + (s.length > 2 ? REL_N[s[2]] ?? 0 : 0) : null);
+  for (const c of chunks) {
+    for (const e of c.arr) {
+      const at = `${c.id} ${e.id}`;
+      const d = e.detail || {};
+      for (const k of ["background", "process", "impact"]) {
+        const txt = typeof d[k] === "string" ? d[k] : "";
+        if (!txt) continue;
+        /* ① 内联引用的目标必须还在 */
+        for (const m of txt.matchAll(idRe)) {
+          if (!idSet.has(m[0])) E(c.id, "XREF_DANGLING", `${at}.detail.${k}: 「见 ${m[0]}」指向不存在的 id（改名或删条目时正文没跟着改）`);
+        }
+        /* ② 相对年份必须算得回来 */
+        for (const m of txt.matchAll(relRe)) {
+          const rel = m[1];
+          const n = rel === "明年" || rel === "次年" ? 1
+            : rel === "又明年" || rel === "后年" ? 2
+            : toNum((m[2] || m[3] || "").replace(/^后/, ""));
+          if (n === null) continue;
+          /* 锚年：本句内、该词之前最后一个明确纪年，否则本条 year */
+          const sentStart = Math.max(txt.lastIndexOf("。", m.index), txt.lastIndexOf("；", m.index),
+            txt.lastIndexOf("！", m.index), txt.lastIndexOf("？", m.index), -1) + 1;
+          let anchor = e.year;
+          yearMark.lastIndex = sentStart;
+          let ym;
+          while ((ym = yearMark.exec(txt)) && ym.index < m.index)
+            anchor = ym[1] !== undefined ? -Number(ym[1]) : Number(ym[2]);
+          /* m[4] 是「（见 a、b）」里的整串 id；按 、 拆开逐个算，
+           * 三个以上引用也不会漏（早先写 [m[4],m[5]] 时组号数错，
+           * 单目标被报两遍、第二个 id 永远不查）。 */
+          for (const id of m[4].split("、")) {
+            const t = idSet.has(id) ? seenId.get(id) : null;
+            if (!t) continue;   /* 断链由 XREF_DANGLING 报，这里不重复 */
+            const target = chunks.find((x) => x.id === t).arr.find((x) => x.id === id);
+            const delta = target.year - anchor;
+            if (delta !== n)
+              E(c.id, "REL_YEAR", `${at}.detail.${k}: 「${rel}」所引 ${id}（${fmtYear(target.year)}）自锚年 ${fmtYear(anchor)} 起算实为${delta < 0 ? "前" : "后"}${Math.abs(delta)}年，不是${n === 1 ? "明年" : `后${n}年`}`);
+          }
+        }
+      }
+    }
+  }
 }
 
 /* ---------- 跨片一致性：同事件重复录入 / 跨轨同级 ----------

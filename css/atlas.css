@@ -1,0 +1,212 @@
+/* atlas.css | 舆图视图 · 地点/人物页 · 寻址挑战
+ * 配色一律走 base.css 的令牌：舆图要在深墨与宣纸两套主题下都读得清，
+ * 写死 hex 就等于让对比度门量不到它。
+ */
+
+/* 关掉的层必须真消失：这三层都靠 JS 翻 hidden 属性来收起，但本文件的
+ * display:flex 与 UA 的 [hidden]{display:none} 权重相同、且作者样式胜出，
+ * 少这一条就是「关掉以后还杵在全屏上挡点击」（实测 elementFromPoint 命中地图）。 */
+.atlas[hidden], .place-drawer[hidden], .frame-drawer[hidden] { display: none; }
+
+/* ============ 舆图容器 ============ */
+body.atlas-open { overflow: hidden; }
+
+.atlas {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  color: var(--ink);
+  /* 海陆对比走专用令牌：--bg-elev 与 --bg 只差一档灰，落在地图上就是「一片黑」。
+   * 地图要一眼看出「这是陆地这是水」，靠的是色相（冷水/暖陆）而不只是明度。 */
+  --map-sea: #0c1119;
+  --map-land: #221d17;
+  --map-land-stroke: #5a4f3d;
+  --map-river: #4d7f9c;
+}
+html[data-theme="light"] .atlas {
+  --map-sea: #dfe8ef;
+  --map-land: #f6f0e2;
+  --map-land-stroke: #b3a583;
+  --map-river: #4d7f9c;
+}
+.at-map { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.at-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.at-svg:active { cursor: grabbing; }
+
+.at-sea { fill: var(--map-sea); }
+.at-land { fill: var(--map-land); stroke: var(--map-land-stroke); stroke-width: .7; vector-effect: non-scaling-stroke; }
+.at-river { fill: none; stroke: var(--map-river); stroke-width: 1.2; opacity: .85; vector-effect: non-scaling-stroke; }
+.at-lake { fill: var(--map-river); opacity: .6; }
+
+/* 大势层：软墨面 + 残影 + 进退箭头 */
+.at-blob { fill-opacity: .30; stroke: currentColor; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.at-ghost { fill: none; stroke: var(--cn); stroke-width: 1.2; stroke-dasharray: 5 4; opacity: .75; vector-effect: non-scaling-stroke; }
+.at-arrow { fill: none; stroke: var(--gold); stroke-width: 1.6; stroke-dasharray: 7 3; vector-effect: non-scaling-stroke; opacity: .9; }
+.at-arrowhead { fill: var(--gold); }
+.at-bloblab { fill: var(--ink); font: 600 12px/1 var(--font-serif); paint-order: stroke; stroke: var(--map-sea); stroke-width: 3.5px; }
+
+/* 落针与标注 */
+.at-pin { stroke: var(--map-sea); stroke-width: 1.2; cursor: pointer; }
+.at-pin:hover { stroke: var(--ink); }
+.at-approx { fill-opacity: .16; stroke-dasharray: 3 3; }
+.at-lab { fill: var(--ink); font: 500 11px/1 var(--font-sans); paint-order: stroke; stroke: var(--map-sea); stroke-width: 3.5px; pointer-events: none; }
+.at-stop { fill: var(--bg-panel); stroke: var(--cn); stroke-width: 1.6; cursor: pointer; }
+.at-stopn { fill: var(--cn); font: 700 10px/1 var(--font-sans); text-anchor: middle; pointer-events: none; }
+.at-route { fill: none; stroke: var(--cn); stroke-width: 1.8; stroke-dasharray: 6 4; opacity: .85; vector-effect: non-scaling-stroke; }
+
+/* 悬浮提示 */
+.at-tip {
+  position: absolute; z-index: 3; max-width: 280px; padding: 8px 10px;
+  background: var(--popover-bg); border: 1px solid var(--rule); border-radius: var(--r-md);
+  box-shadow: var(--shadow); font: 400 12px/1.5 var(--font-sans); color: var(--ink);
+  pointer-events: none;
+}
+
+/* 右上模式与说明 */
+.at-chrome { position: absolute; left: 12px; top: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; pointer-events: none; }
+.at-modes { display: flex; gap: 6px; pointer-events: auto; }
+.at-modes .tb-btn { background: var(--bg-panel); }
+.at-note {
+  flex: 1 1 260px; min-width: 0; padding: 6px 9px; pointer-events: auto;
+  background: var(--bg-panel); border: 1px solid var(--rule-soft); border-radius: var(--r-sm);
+  color: var(--ink-soft); font: 400 11px/1.5 var(--font-sans);
+}
+
+/* 底部年份条 */
+.at-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px; background: var(--bg-panel); border-top: 1px solid var(--rule);
+}
+.at-bar input[type=range] { flex: 1 1 180px; min-width: 120px; }
+.at-year { min-width: 74px; font: 600 13px/1 var(--font-serif); color: var(--ink); }
+.at-half { font: 400 11px/1 var(--font-sans); color: var(--ink-faint); }
+
+/* 嵌入模式：藏去与本站无关的控件，只留图与一条回链 */
+.atlas.at-embed .at-bar .tb-btn, .atlas.at-embed .at-modes { display: none; }
+
+/* ============ 地点页 / 人物页 ============ */
+body.place-open .detail { right: 424px; }
+.place-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 424px; max-width: 92vw; z-index: 42;
+  display: flex; flex-direction: column;
+  background: var(--bg-panel); border-left: 1px solid var(--rule); box-shadow: var(--shadow);
+}
+.pl-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--rule-soft); }
+.pl-crumb { flex: 1 1 auto; font: 600 12px/1.4 var(--font-sans); color: var(--ink-soft); }
+.pl-tools { display: flex; gap: 4px; }
+.pl-tools button {
+  padding: 4px 8px; background: var(--bg-elev); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: var(--r-sm); font: 400 11px/1 var(--font-sans); cursor: pointer;
+}
+.pl-tools button:hover { background: var(--bg-hover); }
+.pl-body { flex: 1 1 auto; overflow: auto; padding: 12px; }
+.pl-meta h3 { margin: 0 0 6px; font: 600 22px/1.25 var(--font-serif); color: var(--ink); }
+.pl-meta h3 small { margin-left: 8px; font: 400 12px/1 var(--font-sans); color: var(--ink-faint); }
+.pl-line { margin: 3px 0; font: 400 12px/1.6 var(--font-sans); color: var(--ink-soft); }
+.pl-line code { color: var(--link); font: 400 11px/1.4 var(--font-mono); }
+.pl-line b { color: var(--ink); }
+.pl-pv { margin-left: 6px; color: var(--ink-faint); }
+.pl-warn { color: var(--warn); }
+.pl-line button { margin: 0 4px 2px 0; padding: 2px 6px; background: var(--bg-elev); border: 1px solid var(--rule); border-radius: var(--r-sm); color: var(--ink); font: 400 11px/1.4 var(--font-sans); cursor: pointer; }
+.pl-stops { margin: 8px 0; }
+.pl-stop { display: flex; gap: 8px; padding: 6px 0; border-top: 1px solid var(--rule-soft); }
+.pl-sn { flex: 0 0 18px; color: var(--cn); font: 700 12px/1.6 var(--font-sans); }
+.pl-sy { flex: 0 0 56px; color: var(--ink-faint); font: 400 12px/1.6 var(--font-serif); }
+.pl-sc { flex: 1 1 auto; }
+.pl-sc b { display: block; color: var(--ink); font: 600 13px/1.5 var(--font-sans); }
+.pl-sc i { display: block; color: var(--link); font: 400 12px/1.5 var(--font-sans); font-style: normal; cursor: pointer; }
+.pl-sc span { display: block; color: var(--ink-soft); font: 400 12px/1.6 var(--font-sans); }
+.pl-sc code { color: var(--ink-faint); font: 400 10px/1.5 var(--font-mono); cursor: pointer; }
+.pl-sec { margin-top: 12px; }
+.pl-sec h4 { display: flex; justify-content: space-between; margin: 0 0 4px; padding-bottom: 3px; border-bottom: 1px solid var(--rule); font: 600 12px/1.5 var(--font-sans); color: var(--ink); }
+.pl-n { color: var(--ink-faint); font-weight: 400; }
+.pl-it { display: flex; gap: 6px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--rule-soft); cursor: pointer; }
+.pl-it:hover { background: var(--bg-hover); }
+.pl-y { flex: 0 0 52px; color: var(--ink-faint); font: 400 11px/1.5 var(--font-serif); }
+.pl-g { flex: 0 0 14px; }
+.pl-c { flex: 1 1 auto; }
+.pl-c b { color: var(--ink); font: 600 12px/1.5 var(--font-sans); }
+.pl-m { display: block; color: var(--ink-soft); font: 400 11px/1.5 var(--font-sans); }
+.pl-m i { font-style: normal; }
+.pl-w { flex: 0 0 auto; color: var(--gold-text); font: 400 10px/1.5 var(--font-sans); }
+.pl-none, .pl-more { padding: 8px 0; color: var(--ink-faint); font: 400 12px/1.6 var(--font-sans); }
+
+/* ============ 寻址挑战 ============ */
+.qz { position: absolute; left: 12px; bottom: 12px; z-index: 4; }
+.qz-card {
+  width: 320px; max-width: 78vw; padding: 10px 12px;
+  background: var(--bg-panel); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow);
+}
+.qz-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font: 600 12px/1 var(--font-sans); color: var(--ink); }
+.qz-top #qz-score { color: var(--gold-text); }
+.qz-top .tb-btn { margin-left: auto; }
+.qz-q { font: 400 13px/1.6 var(--font-sans); color: var(--ink); }
+.qz-q b { color: var(--cn); }
+.qz-clue { margin-top: 4px; color: var(--ink-soft); font: 400 12px/1.6 var(--font-sans); }
+.qz-hint { margin: 6px 0; color: var(--ink-soft); font: 400 11px/1.6 var(--font-sans); }
+.qz-src { margin-top: 4px; color: var(--ink-faint); font: 400 11px/1.6 var(--font-sans); }
+.qz-act { display: flex; gap: 6px; }
+.qz-foot { margin-top: 6px; color: var(--ink-faint); font: 400 10px/1.5 var(--font-sans); }
+.qz-pin circle { fill: var(--gold); stroke: var(--bg); }
+.qz-ring { fill: none; stroke: var(--gold); stroke-width: 1.4; opacity: .8; }
+.qz-line { stroke: var(--ink-soft); stroke-width: 1; stroke-dasharray: 3 3; }
+.qz-truth { fill: var(--cn); stroke: var(--bg); stroke-width: 1.2; }
+
+/* ============ 窄屏：舆图改上下两段，落针与文字都放大一档 ============ */
+@media (max-width: 720px) {
+  .atlas { flex-direction: column-reverse; }
+  .at-bar { padding: 6px 8px; gap: 6px; }
+  .at-bar input[type=range] { flex-basis: 120px; }
+  .at-chrome { left: 8px; right: 8px; top: 8px; }
+  .at-note { font-size: 10px; }
+  .at-lab { font-size: 12px; }
+  .place-drawer { width: 100%; max-width: none; top: auto; height: 72vh; border-left: 0; border-top: 1px solid var(--rule); }
+  body.place-open .detail { right: 0; }
+  .qz { left: 8px; right: 8px; bottom: 8px; }
+  .qz-card { width: auto; }
+}
+
+/* ============ 视角层：看点抽屉 ============ */
+body.frame-open .detail { right: 460px; }
+.frame-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 460px; max-width: 94vw; z-index: 44;
+  display: flex; flex-direction: column;
+  background: var(--bg-panel); border-left: 1px solid var(--rule); box-shadow: var(--shadow);
+}
+.fr-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--rule-soft); }
+.fr-crumb { flex: 1 1 auto; font: 600 12px/1.4 var(--font-sans); color: var(--gold-text); }
+.fr-tools { display: flex; gap: 4px; }
+.fr-tools button { padding: 4px 8px; background: var(--bg-elev); color: var(--ink); border: 1px solid var(--rule); border-radius: var(--r-sm); font: 400 11px/1 var(--font-sans); cursor: pointer; }
+.fr-tools button:hover { background: var(--bg-hover); }
+.fr-body { flex: 1 1 auto; overflow: auto; padding: 12px; }
+.fr-stance { margin: 0 0 12px; padding: 9px 11px; background: var(--bg-elev); border-left: 3px solid var(--gold); border-radius: var(--r-sm); color: var(--ink-soft); font: 400 12px/1.7 var(--font-sans); }
+.fr-card { padding: 12px 0; border-top: 1px solid var(--rule); }
+.fr-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.fr-top b { color: var(--ink); font: 600 14px/1.5 var(--font-sans); cursor: pointer; }
+.fr-top b:hover { color: var(--link); }
+.fr-y { color: var(--ink-faint); font: 400 12px/1.5 var(--font-serif); }
+.fr-tk { font: 400 11px/1.5 var(--font-sans); }
+.fr-why { margin: 6px 0; color: var(--ink); font: 400 13px/1.7 var(--font-sans); }
+.fr-lab { display: inline-block; margin-right: 6px; padding: 1px 5px; border: 1px solid var(--rule); border-radius: var(--r-sm); color: var(--ink-faint); font: 400 10px/1.5 var(--font-sans); }
+.fr-claim { margin: 6px 0; color: var(--ink); font: 500 13px/1.7 var(--font-sans); }
+.fr-st { margin-left: 6px; padding: 1px 6px; border-radius: var(--r-sm); font: 400 10px/1.6 var(--font-sans); }
+.fr-st-ok { background: var(--gold-soft); color: var(--gold-text); }
+.fr-st-mid { background: var(--bg-hover); color: var(--ink-soft); }
+.fr-st-warn { background: var(--bg-hover); color: var(--warn); }
+.fr-ground { margin: 6px 0; padding: 7px 10px; background: var(--bg-elev); border-left: 3px solid var(--rule); color: var(--ink-soft); font: 400 12px/1.7 var(--font-serif); }
+.fr-kou { margin: 4px 0; color: var(--ink-faint); font: 400 11px/1.6 var(--font-sans); }
+.fr-kou span { margin-right: 10px; }
+.fr-peer { margin: 7px 0; padding: 8px 10px; background: var(--bg-elev); border-radius: var(--r-sm); }
+.fr-peer b { display: inline; color: var(--link); font: 600 12px/1.6 var(--font-sans); cursor: pointer; }
+.fr-py { margin-left: 6px; color: var(--ink-faint); font: 400 11px/1.6 var(--font-serif); }
+.fr-peer p { margin: 4px 0 0; color: var(--ink-soft); font: 400 12px/1.7 var(--font-sans); }
+.fr-dis { margin: 7px 0; padding-left: 9px; border-left: 2px solid var(--cn); }
+.fr-dis p { margin: 3px 0 0; color: var(--ink-soft); font: 400 12px/1.7 var(--font-sans); }
+.fr-src { margin-top: 6px; }
+.fr-src code { margin-right: 6px; color: var(--ink-faint); font: 400 10px/1.6 var(--font-mono); }
+.fr-bad, .fr-foot { color: var(--ink-faint); font: 400 11px/1.7 var(--font-sans); }
+.fr-foot { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--rule); }
+@media (max-width: 720px) {
+  .frame-drawer { width: 100%; max-width: none; top: auto; height: 76vh; border-left: 0; border-top: 1px solid var(--rule); }
+  body.frame-open .detail { right: 0; }
+}

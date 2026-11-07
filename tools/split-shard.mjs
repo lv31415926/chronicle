@@ -2,8 +2,10 @@
  * 用法: node tools/split-shard.mjs data/cn/cn-07.js 1978 cn-13
  *   → 左片留在原文件（沿用原 chunk key），右片写入 data/<dir>/cn-13.js
  * 需要三道闸门（都是实测踩过的坑）：
- *   1. 行首要同时认 `{ id:` 和 `{id:`——只认一种会让某些分片整片解析不到行，
+ *   1. 行首要同时认 `{"id":`（JSON 行，data/cn 多数分片）、`{ id:` 与 `{id:` 三种形态——
+ *      只认一种会让某些分片整片解析不到行，
  *      而「空集 vs 空集」的守恒检查照样通过，结果是静默把源片写成空文件。
+ *      年份不在这里用正则取，改由垫片加载出的 AUTH 现取：一份口径，不会与正文打架。
  *   2. 逐行条数必须等于 Function 垫片加载出的权威条数。
  *   3. 读盘与写盘之间比对源文件 sha，有代理正在写就停手。 */
 import fs from "fs";
@@ -22,13 +24,21 @@ const before = fs.readFileSync(SRC);
 const h0 = sha(before);
 const src = before.toString("utf8");
 
-const HEAD_RE = /^\s*\{\s*id:/;
+const HEAD_RE = /^\s*\{\s*(?:"id"|id)\s*:/;
 const rows = [], other = [];
-for (const ln of src.split("\n")) (HEAD_RE.test(ln) ? rows : other).push(ln);
+const allLines = src.split("\n");
+const rowIdx = [];
+allLines.forEach((ln, i) => { if (HEAD_RE.test(ln)) { rows.push(ln); rowIdx.push(i); } else other.push(ln); });
+/* render() 重建片头与片尾，不保留夹行：两行事件之间若有注释，拆分就是改正文，
+ * 而「行多重集相等」那条自检看不见它——它只比事件行。所以在这里停手。 */
+if (rowIdx.length) {
+  const interior = allLines.slice(rowIdx[0] + 1, rowIdx[rowIdx.length - 1])
+    .filter((ln) => !HEAD_RE.test(ln) && ln.trim());
+  if (interior.length)
+    fail(`首行与末行事件之间夹着 ${interior.length} 行非事件内容（首处「${interior[0].trim().slice(0, 40)}」），render 会把它丢掉——请把注释挪到片头再拆`);
+}
 
-const idRe = /\{\s*id:\s*"([^"]+)"/;
-const yrRe = /(?:^|[,{\s])year:\s*(-?\d+)/;
-const parsed = rows.map((ln) => ({ ln, id: (idRe.exec(ln) || [])[1], year: Number((yrRe.exec(ln) || [])[1]) }));
+const idRe = /^\s*\{\s*"?id"?\s*:\s*"([^"]+)"/;
 
 const w = { window: {} };
 try { new Function("window", src)(w.window); } catch (e) { fail("垫片解析失败: " + e.message); }
@@ -36,6 +46,13 @@ const OLD_ID = Object.keys(w.window.__CHRONICLE_CHUNK || {})[0];
 if (!OLD_ID) fail("垫片没加载出 chunk key");
 if (!new RegExp(`__CHRONICLE_CHUNK\\["${OLD_ID}"\\]\\s*=\\s*\\[`).test(src)) fail("chunk key 与文件头不符");
 const AUTH = w.window.__CHRONICLE_CHUNK[OLD_ID];
+/* 年份只从垫片这一份取：正则再认一遍就有第二份口径，行里写成 "year": -49 还是
+ * year: -49 会决定切点，而这种差异本门不该管。 */
+const YEAR_BY_ID = new Map(AUTH.map((e) => [e.id, e.year]));
+const parsed = rows.map((ln) => {
+  const id = (idRe.exec(ln) || [])[1];
+  return { ln, id, year: YEAR_BY_ID.get(id) };
+});
 if (parsed.length === 0) fail(`行首正则没认出任何事件行，本片实有 ${AUTH.length} 条；照切会清空源片`);
 if (parsed.length !== AUTH.length) fail(`逐行认出 ${parsed.length} 条 ≠ 垫片加载 ${AUTH.length} 条，有行未被识别`);
 if (parsed.some((p) => !p.id || !Number.isInteger(p.year))) fail("有行未能解析出 id/year");
@@ -46,16 +63,21 @@ const A = parsed.filter((p) => p.year < CUT);
 const B = parsed.filter((p) => p.year >= CUT);
 if (!A.length || !B.length) fail(`切点 ${CUT} 未能把 ${parsed.length} 条分成非空两半（跨度 ${Math.min(...parsed.map(p => p.year))}..${Math.max(...parsed.map(p => p.year))}）`);
 const srt = (a) => a.map((p) => p.id).sort();
-if (new Set([...srt(A), ...srt(B)]).size !== parsed.length) fail("切分后 id 有重合");
-if (JSON.stringify([...srt(A), ...srt(B)]) !== JSON.stringify(srt(parsed))) fail("切分后 id 多重集与原片不等，有条目丢失或复制");
+/* 先把两侧的行合成一份再整体排序。分开排序后拼接是另一种东西：id 里的年份位数
+ * 不齐（b139 与 b32），字符串序与年代序不同向，拼接序会把一次干净的拆分判成丢条目，
+ * 而人为了让它过绿所改的下一步，多半就是放松这条守恒。 */
+const merged = [...A, ...B];
+if (new Set(srt(merged)).size !== parsed.length) fail("切分后 id 有重合");
+if (JSON.stringify(srt(merged)) !== JSON.stringify(srt(parsed))) fail("切分后 id 多重集与原片不等，有条目丢失或复制");
 for (const [name, half] of [["A", A], ["B", B]]) {
   const ys = half.map((p) => p.year);
   if (ys.some((y) => name === "A" ? y >= CUT : y < CUT)) fail(`${name} 侧混入越界年份，切点失效`);
 }
 
 function render(chunkId, comment, arr) {
+  const today = new Date().toISOString().slice(0, 10);
   return [
-    `/* chronicle data chunk: ${chunkId} | ${comment} | 拆分自 ${path.basename(SRC, ".js")}，切点 ${CUT} 年，逐行原文照搬 | 生成于 2026-09-21 */`,
+    `/* chronicle data chunk: ${chunkId} | ${comment} | 拆分自 ${path.basename(SRC, ".js")}，切点 ${CUT} 年，逐行原文照搬 | 生成于 ${today} */`,
     "window.__CHRONICLE_CHUNK = window.__CHRONICLE_CHUNK || {};",
     `window.__CHRONICLE_CHUNK["${chunkId}"] = [`,
     ...arr.map((p) => p.ln),

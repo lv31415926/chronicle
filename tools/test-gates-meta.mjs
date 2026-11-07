@@ -15,9 +15,20 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
+import { markOwner, reclaimStale } from "./tmp-sweep.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "gate-meta-"));
+
+/* 全绿才删 TMP（见文末），所以中途被杀、或跑过失败用例的现场会一份份留下，
+ * 每份 11M+。回收与 test-gates 共用同一判据：有活人占用的目录不能碰——
+ * 两个 meta 会话并跑时互删副本，被抓到的那次整轮结论直接失真。 */
+{
+  markOwner(TMP);
+  const r = reclaimStale("gate-meta-", path.dirname(TMP), path.basename(TMP));
+  if (r.reclaimed) console.log(`已回收上次运行遗留的 ${r.reclaimed} 份变异现场` +
+    (r.kept ? `；另 ${r.kept} 份正被别的会话占用，不动` : ""));
+}
 
 function fresh() {
   const dir = path.join(TMP, "run");
@@ -31,6 +42,27 @@ function fresh() {
 }
 
 const CASES = [
+  /* ---- 清理程序自己 ----
+   * 回收循环是这批工具里唯一会 rmSync 别人产物的代码。它改哑的两个方向都骗人：
+   * 恒「无主」⇒ 并跑时互删副本，被删的一方要么崩要么拿着半套文件判绿；
+   * 恒「有主」⇒ 一份都不删，tmp 里几百兆只增不减，看起来仍然全绿。
+   * 判据本身由 tools/test-gates.mjs 的三个探针目录现场验，这里只负责证明那条断言不是死代码。 */
+  {
+    label: "现场回收判据恒「无主」（并跑时互删副本）",
+    file: "tools/tmp-sweep.mjs",
+    runner: "tools/test-gates.mjs",
+    from: "    if (ownerAlive(dir)) { res.kept++; continue; }",
+    to: "    if (false && ownerAlive(dir)) { res.kept++; continue; }",
+    name: "存活会话的副本不得被删",
+  },
+  {
+    label: "现场回收判据恒「有主」（回收永久空转）",
+    file: "tools/tmp-sweep.mjs",
+    runner: "tools/test-gates.mjs",
+    from: "    if (ownerAlive(dir)) { res.kept++; continue; }",
+    to: "    if (true || ownerAlive(dir)) { res.kept++; continue; }",
+    name: "归属无效与无主旧现场仍要回收",
+  },
   {
     label: "CHRON_ORDER 深度过滤退回 0",
     file: "tools/e2e-static.mjs",
@@ -79,11 +111,15 @@ const CASES = [
   },
   /* ---- 开场收束语（#45）：三条兜底判据各自改哑，看 test-units 是否点名 ---- */
   {
-    label: "字色清单的选择器条件漏掉 .ep-we（换色无人管）",
-    file: "tools/test-units.mjs",
+    /* 这一条原先打在「test-units 里删掉 `|| sel.includes(".ep-we") ||`」上，本轮实测变成抓不到：
+     * --ink-soft 进了 TEXT_TOKENS，而 .ep-we 正好用它——选择器条件成了冗余的第二重保护，
+     * 删了它这条规则照样在清单里。真正的失效形态是「字色不再走令牌」（写死 hex 就从
+     * `color: var(--x)` 的扫描里静默脱落，上面量出来的对比度全作废），哨兵因此改打这个形态。 */
+    label: "收束语字色写成死值（脱离令牌后静默滑出字色清单）",
+    file: "css/layout.css",
     runner: "tools/test-units.mjs",
-    from: ' || sel.includes(".ep-we") ||',
-    to: " ||",
+    from: "  letter-spacing: .1em; color: var(--ink-soft);",
+    to: "  letter-spacing: .1em; color: #8d8271;",
     name: "也在这份字色清单里",
   },
   {
@@ -351,6 +387,24 @@ const CASES = [
     to: '      typeof c.at === "string";',
     name: "核对记录被拒（日期写成中文）",
   },
+  /* 「已核」这一档第一次靠署名里的位置撑起来，所以署名判据本身要有哨兵：
+   * 它一旦改哑，「某某核过」就能抬档，而读者手上仍然查不到任何东西。 */
+  {
+    label: "署名不再要求写明位置（「某某核过」也能冒充已核）",
+    file: "js/prov.js",
+    runner: "tools/test-units.mjs",
+    from: '    for (var i = 0; i < CHECK_KINDS.length; i++) if (CHECK_KINDS[i].re.test(s)) return true;\n    return false;',
+    to: '    for (var i = 0; i < CHECK_KINDS.length; i++) if (CHECK_KINDS[i].re.test(s)) return true;\n    return true;',
+    name: "核对记录被拒（署名不带位置）",
+  },
+  {
+    label: "署名尺子把「日期」也算成位置（何时冒充了何处）",
+    file: "js/prov.js",
+    runner: "tools/test-units.mjs",
+    from: '  var CHECK_KINDS = KINDS.filter(function (k) { return k.key !== "dated"; });',
+    to: '  var CHECK_KINDS = KINDS.slice();',
+    name: "署名尺子确实剔掉了「日期」这一类",
+  },
   {
     label: "篇目定位正则被改坏（规则死掉却仍在冒充判据）",
     file: "js/prov.js",
@@ -358,6 +412,66 @@ const CASES = [
     from: '    { key: "chapter", label: "篇目", re: /《[^》]+·[^》]+》/ },',
     to: '    { key: "chapter", label: "篇目", re: /《[^》]+·[^》]+》ZZZ/ },',
     name: "规则已失效却在冒充判据",
+  },
+  /* ---- 著录编号（第六类）在四个抄本里的同步 ----
+   * 这把尺子现在有四处副本：js/prov.js 的 KINDS（界面分级）、它的 CHECK_KINDS
+   * （署名里的位置）、tools/validate.mjs 的 CHECK_BY_LOC_RE（入库门）、
+   * tools/validate-story.mjs 的 LOCATORS（故事门）。浏览器文件不能 import 工具、
+   * 工具不能 require 浏览器，所以对账只能逐串跑，哨兵则保证「对账」本身不是死代码。
+   * 三条各打在一个真实分叉形态上：界面侧整类消失（分级退回五类、故事门仍放行）、
+   * 故事门侧改哑（故事层说查得到底本、界面上却只给「仅书名」）、
+   * 入库门侧丢掉分支（投稿进得来，徽章却不认这条核对记录）。
+   * 下面还有三条对着「年第N期」这一支——同一把尺子的同一处，三个方向各打一次。 */
+  {
+    label: "prov.js 的「著录编号」整类被删（六类退回五类）",
+    file: "js/prov.js",
+    runner: "tools/test-story.mjs",
+    from: '    { key: "numbered", label: "著录编号", re: /》\\s*\\d{1,6}(?:\\s*[、,，.．]\\s*\\d{1,6})+|》\\s*\\d{1,6}\\s*(?:[—–~－]|至)\\s*\\d{1,6}\\s*[章条款篇号节项]|》\\s*\\d{1,6}\\s*[章条款篇号节项]|》\\s*\\d{1,4}[a-z](?![a-z])|》\\s*\\d{2,6}(?![\\d.])[^\\s\\d年月日—–~－/、，.．)）】至与]|》\\s*\\d{1,4}\\s*年第\\s*[0-9一二三四五六七八九十]{1,3}\\s*期/ },',
+    to: '',
+    name: "两侧的类别清单同名同序",
+  },
+  {
+    label: "故事门的「著录编号」判据被改哑（门放行、界面降级）",
+    file: "tools/validate-story.mjs",
+    runner: "tools/test-story.mjs",
+    from: '  { key: "numbered", re: /》\\s*\\d{1,6}(?:\\s*[、,，.．]\\s*\\d{1,6})+|》\\s*\\d{1,6}\\s*(?:[—–~－]|至)\\s*\\d{1,6}\\s*[章条款篇号节项]|》\\s*\\d{1,6}\\s*[章条款篇号节项]|》\\s*\\d{1,4}[a-z](?![a-z])|》\\s*\\d{2,6}(?![\\d.])[^\\s\\d年月日—–~－/、，.．)）】至与]|》\\s*\\d{1,4}\\s*年第\\s*[0-9一二三四五六七八九十]{1,3}\\s*期/ },',
+    to: '  { key: "numbered", re: /《不可能出现这本书》\\d{9}、\\d{9}/ },',
+    name: "书名号＋连列编号在两侧都算「著录编号」定位",
+  },
+  {
+    label: "入库门的署名位置判据丢掉「著录编号」分支",
+    file: "tools/validate.mjs",
+    runner: "tools/test-units.mjs",
+    from: '|》\\s*\\d{1,6}(?:\\s*[、,，.．]\\s*\\d{1,6})+|》\\s*\\d{1,6}\\s*(?:[—–~－]|至)\\s*\\d{1,6}\\s*[章条款篇号节项]|》\\s*\\d{1,6}\\s*[章条款篇号节项]|》\\s*\\d{1,4}[a-z](?![a-z])|》\\s*\\d{2,6}(?![\\d.])[^\\s\\d年月日—–~－\\/、，.．)）】至与]',
+    to: '',
+    name: "署名串「有没有写明位置」裁决完全一致",
+  },
+  /* 「年第N期」是著录编号里最晚补的一支（《文物》1975年第11期 这类发掘简报），
+   * 它和已被防住的年跨度只差一个「期」字，所以三份副本各来一条：删掉这一支，
+   * 相应那一份的自审必须当场变红——否则这一支就是个没人看着的特例。 */
+  {
+    label: "界面侧丢掉「年第N期」这一支（简报的核对记录被降级）",
+    file: "js/prov.js",
+    runner: "tools/test-units.mjs",
+    from: '|》\\s*\\d{1,4}\\s*年第\\s*[0-9一二三四五六七八九十]{1,3}\\s*期',
+    to: '',
+    name: "真编号判为位置",
+  },
+  {
+    label: "入库门丢掉「年第N期」这一支（门拦得住、界面抬得起）",
+    file: "tools/validate.mjs",
+    runner: "tools/test-units.mjs",
+    from: '|》\\s*\\d{1,4}\\s*年第\\s*[0-9一二三四五六七八九十]{1,3}\\s*期',
+    to: '',
+    name: "署名串「有没有写明位置」裁决完全一致",
+  },
+  {
+    label: "故事门丢掉「年第N期」这一支（两侧分级口径分叉）",
+    file: "tools/validate-story.mjs",
+    runner: "tools/test-story.mjs",
+    from: '|》\\s*\\d{1,4}\\s*年第\\s*[0-9一二三四五六七八九十]{1,3}\\s*期',
+    to: '',
+    name: "两侧都算「著录编号」",
   },
   {
     label: "RANK 丢掉一档（门槛筛选把两档静默合并）",
@@ -856,6 +970,471 @@ const CASES = [
     from: ".statusbar .beian { color: var(--link); text-decoration: underline; }",
     to: ".statusbar .beian { text-decoration: underline; }",
     name: "备案号链接 .beian 也在这份字色清单里",
+  },
+  /* ---- 投稿分诊台 tools/intake.mjs（#54）：六道判据各自改哑，test-intake 必须点名 ----
+   * 分诊台自己就是门。它的失效形状全是「不报错、不产坏数据，只是该拦的没拦」：
+   * 查重不命中→并档造出双条目；白名单不登记→自封字段无声进入；空目录不判红→
+   * 一整批投稿蒸发而 CI 全绿。所以每条都得单独被改哑验一遍。 */
+  {
+    label: "intake 查重器恒不命中（已存在的大事当新条目放行）",
+    file: "tools/intake.mjs",
+    runner: "tools/test-intake.mjs",
+    from: "    if (a === b || a.includes(b) || b.includes(a) || sharedRatio(a, b) >= 0.6) hits.push(c.id + \":\" + c.title);",
+    to: "    void 0;",
+    name: "回喂已存在的大事必须 100% 被认成重复",
+  },
+  {
+    label: "intake 白名单静默丢键（丢弃不上账）",
+    file: "tools/intake.mjs",
+    runner: "tools/test-intake.mjs",
+    from: "  for (const k of Object.keys(rec)) if (!ALLOWED.head.includes(k)) { row.flags.push(`丢弃未知键 ${k}`); }",
+    to: "  for (const k of Object.keys(rec)) if (!ALLOWED.head.includes(k)) { void 0; }",
+    name: "顶层 confidence 被丢弃并登记",
+  },
+  {
+    label: "intake 不再调站内合规判据（恒判合规）",
+    file: "tools/intake.mjs",
+    runner: "tools/test-intake.mjs",
+    from: "  const errs = CC.checkRecord(clean);",
+    to: "  const errs = [];",
+    name: "year0.json 的拒绝理由点名",
+  },
+  {
+    label: "intake 空清单不再判失败",
+    file: "tools/intake.mjs",
+    runner: "tools/test-intake.mjs",
+    from: "  if (!rows.length) {",
+    to: "  if (false) {",
+    name: "空目录必须 rc=1",
+  },
+  {
+    label: "intake 的出处定位判据恒空（升级通道被焊死）",
+    file: "tools/intake.mjs",
+    runner: "tools/test-intake.mjs",
+    from: "  const kinds = PV.KINDS.filter(k => k.re.test(String(locator || \"\")));",
+    to: "  const kinds = [];",
+    name: "写到卷册页码的补出处标「可定位」",
+  },
+  {
+    label: "intake 往 data/ 写文件（只读承诺被破）",
+    file: "tools/intake.mjs",
+    runner: "tools/test-intake.mjs",
+    from: "  const { files, recs } = readFrom(FROM);",
+    to: "  const { files, recs } = readFrom(FROM);\n  fs.writeFileSync(path.join(ROOT, \"data\", \".intake-probe\"), \"x\");",
+    name: "跑完 intake 后 data/ 指纹一字未动",
+  },
+  /* ---- CI 与本地门清单 1:1（#54）：两侧解析各自改哑，兜底断言必须点名 ---- */
+  {
+    label: "CI 侧命令解析一条也匹配不到（空清单上「一处不少」恒真）",
+    file: "tools/test-units.mjs",
+    runner: "tools/test-units.mjs",
+    from: "const ciNames = (s) => [...s.matchAll(/node\\s+tools\\/([a-z0-9_-]+)\\.mjs/g)]",
+    to: "const ciNames = (s) => [...s.matchAll(/node\\s+toolsZ\\/([a-z0-9_-]+)\\.mjs/g)]",
+    name: "门清单两侧解析自审",
+  },
+  {
+    label: "staging 清单取不到（缺声明时子集判据空转）",
+    file: "tools/test-units.mjs",
+    runner: "tools/test-units.mjs",
+    from: "const stagingMatch = /const STAGING_GATES = \\[([^\\]]*)\\]/.exec(pre);",
+    to: "const stagingMatch = /const STAGING_GATESX = \\[([^\\]]*)\\]/.exec(pre);",
+    name: "STAGING_GATES 取得到",
+  },
+  {
+    label: "凭据判据改哑（永不命中，注释里那句「不部署」再没人兜）",
+    file: "tools/test-units.mjs",
+    runner: "tools/test-units.mjs",
+    from: "  const CRED_RE = /secrets\\.|environment:|uses:[^\\n]*(deploy|publish)/i;",
+    to: "  const CRED_RE = /secretsNEVER\\.|environmentNEVER:/i;",
+    name: "凭据判据漏网",
+  },
+  /* 前三条验的是「解析坏了会不会红」；这条验的是判据本体的缺陷形态——CI 那侧真的少跑一门。
+   * 变异打在 workflows 文件上而不是 test-units 上：门清单对账要抓的就是这个被删的动作。 */
+  {
+    label: "CI 少跑一道门（删掉 intake gate 那步）",
+    file: ".github/workflows/gates.yml",
+    runner: "tools/test-units.mjs",
+    from: "      - name: intake gate\n        run: node tools/test-intake.mjs\n\n",
+    to: "",
+    name: "在 CI 里一处不少",
+  },
+  {
+    label: "新增的 css 没挂进 index.html（磁盘扫描把它量了，页面却不生效）",
+    file: "index.html",
+    runner: "tools/test-units.mjs",
+    from: '<link rel="stylesheet" href="css/story.css">',
+    to: "",
+    name: "每个样式表都被 index.html 链接",
+  },
+  /* 这条打在 atlas.css 上，而不是 components.css 上：字色扫描域从写死的四个文件
+   * 改成磁盘现取之前，atlas.css 里的整套看点/地点样式从没被这把尺子量过——
+   * 也就是说，这个缺陷形态当时改进去是测不出来的。现在它能了，所以要钉住。 */
+  {
+    label: "atlas.css 里拿点缀色当字色（旧名单扫不到这一层）",
+    file: "css/atlas.css",
+    runner: "tools/test-units.mjs",
+    from: ".pl-w { flex: 0 0 auto; color: var(--gold-text);",
+    to: ".pl-w { flex: 0 0 auto; color: var(--gold);",
+    name: "css 里没有 color: var(--gold)",
+  },
+  /* 故事层的接线对账（test-story ⑱）必须自己能变红：内容门全绿而界面断了，
+   * 读者看到的仍然是「没有小故事」，而 CI 一片绿。 */
+  {
+    label: "详情抽屉里摘掉「此事的小故事」",
+    file: "js/detail.js",
+    runner: "tools/test-story.mjs",
+    from: "    if (window.ChronStory) html += ChronStory.block(ev);",
+    to: "    void 0;",
+    name: "详情抽屉里画了「此事的小故事」",
+  },
+  {
+    label: "顶栏故事按钮的落点指错 id（写好了没接上）",
+    file: "js/app.js",
+    runner: "tools/test-story.mjs",
+    from: '    $("btn-story").addEventListener("click", function () {',
+    to: '    $("story-btn").addEventListener("click", function () {',
+    name: "顶栏有故事按钮的点击落点",
+  },
+  {
+    label: "故事抽屉只靠 hidden 属性收起（关掉后还杵在屏上）",
+    file: "css/story.css",
+    runner: "tools/test-story.mjs",
+    from: ".story-drawer[hidden] { display: none; }",
+    to: "/* 删掉：只留 hidden 属性 */",
+    name: "显式 display:none",
+  },
+  {
+    label: "界面 KINDS 少改一档（门改了名，界面那一档永远点不出来）",
+    file: "js/story.js",
+    runner: "tools/test-story.mjs",
+    from: 'var KINDS = ["史载", "笔记异闻", "后世附会", "出土文献与档案"];',
+    to: 'var KINDS = ["史载", "笔记异闻", "后世附会", "出土文献"];',
+    name: "界面 KINDS 与门 KINDS 逐字相同",
+  },
+  {
+    label: "舆图只靠 hidden 收起（关掉后全屏仍被它挡住并拦截点击）",
+    file: "css/atlas.css",
+    runner: "tools/test-units.mjs",
+    from: ".atlas[hidden], .place-drawer[hidden], .frame-drawer[hidden] { display: none; }",
+    to: "/* 删掉：只留 hidden 属性 */",
+    name: "都有 [hidden]{display:none} 兜底",
+  },
+  {
+    label: "兜底规则的选择器打错一个字母（写给了不存在的层）",
+    file: "css/story.css",
+    runner: "tools/test-units.mjs",
+    from: ".story-drawer[hidden] { display: none; }",
+    to: ".story-drawr[hidden] { display: none; }",
+    name: "是空写的账",
+  },
+  {
+    label: "舆图加载期按下的关被丢掉（数据一到，面板自己弹回来）",
+    file: "js/atlas.js",
+    runner: "tools/test-units.mjs",
+    from: '"]).then(function (okAll) {\n      if (!wantOpen) return false;',
+    to: '"]).then(function (okAll) {',
+    name: "每个异步打开的面板都在 hidden=false 前问过",
+  },
+  {
+    label: "wantOpen 只置真不清真（旗子永远写着「要开着」）",
+    file: "js/frame.js",
+    runner: "tools/test-units.mjs",
+    from: "  function close() {\n    wantOpen = false;",
+    to: "  function close() {",
+    name: "都有一处把它清成 false",
+  },
+  {
+    label: "详情里的复述覆盖写轻了一档（压不住 .detail .para p，两处两个色）",
+    file: "css/story.css",
+    runner: "tools/test-story.mjs",
+    from: ".detail .para .st-scene { color: var(--ink); font-size: 13.4px; }",
+    to: ".detail .st-scene { color: var(--ink); font-size: 13.4px; }",
+    name: "每条 .detail 的段落覆盖权重都不低于",
+  },
+  {
+    label: "故事抽屉收了却留着 #/story（刷新自己弹回来）",
+    file: "js/story.js",
+    runner: "tools/test-units.mjs",
+    from: '    window.ChronRouter.resetHash(["#/story"]);',
+    to: "    /* 删掉：只收面板不收地址 */",
+    name: "close() 都把地址也收掉",
+  },
+  {
+    label: "路由点名了一个不存在模块的缩写（扫描域静默少一层）",
+    file: "js/router.js",
+    runner: "tools/test-units.mjs",
+    from: "ChronStory.open(",
+    to: "ChronStor.open(",
+    name: "都能按 window.Chron* 归到文件",
+  },
+  /* ---- 日层（#102）：这一层的接线对账由 test-dates ⑧ 验，改哑必须在这里现形。
+   * 数据侧全绿而界面断一处，读者得到的仍是「没有今天」，CI 却一片绿。 ---- */
+  {
+    label: "今天的模块没被 index.html 挂上（孤儿文件）",
+    file: "index.html",
+    runner: "tools/test-dates.mjs",
+    from: '<script src="js/today.js"></script>',
+    to: "<!-- 忘了挂 -->",
+    name: "日层的模块与样式都被 index.html 挂上",
+  },
+  {
+    label: "顶栏今天按钮的落点指错 id（写好了没接上）",
+    file: "js/app.js",
+    runner: "tools/test-dates.mjs",
+    from: '    $("btn-today").addEventListener("click", function () {',
+    to: '    $("btn-todai").addEventListener("click", function () {',
+    name: "顶栏有今天按钮的点击落点",
+  },
+  {
+    label: "Esc 阶梯里漏掉今天抽屉（键盘用户关不掉）",
+    file: "js/interaction.js",
+    runner: "tools/test-dates.mjs",
+    from: '        if (!floating && window.ChronToday && ChronToday.isOpen()) { ChronToday.close(); break; }\n',
+    to: "",
+    name: "Esc 阶梯里有今天抽屉",
+  },
+  {
+    label: "界面 HOW_LABEL 少改一档（门改了名，出处纪日在页面上没了标签）",
+    file: "js/today.js",
+    runner: "tools/test-dates.mjs",
+    from: '    "text-cn": "中文纪日"',
+    to: '    "cn": "中文纪日"',
+    name: "界面 HOW_LABEL 的键与门 HOWS 逐字相同",
+  },
+  {
+    label: "历表分界被界面抄走一份（页面上写死 1583）",
+    file: "js/today.js",
+    runner: "tools/test-dates.mjs",
+    from: "    var PB = (dates() || {}).prolepticBefore;",
+    to: "    var PB = 1583;",
+    name: "js/today.js 里没有写死的历表分界年",
+  },
+  {
+    label: "今天抽屉只靠 hidden 属性收起（关掉后还杵在屏上）",
+    file: "css/today.css",
+    runner: "tools/test-dates.mjs",
+    from: ".td-drawer[hidden] { display: none; }",
+    to: "/* 删掉：只留 hidden 属性 */",
+    name: "显式 display:none",
+  },
+  {
+    label: "切回时间轴不收今天抽屉（router 兜底分支漏一层）",
+    file: "js/router.js",
+    runner: "tools/test-dates.mjs",
+    from: "      if (window.ChronStory) ChronStory.close();\n      if (window.ChronToday) ChronToday.close();\n    }",
+    to: "      if (window.ChronStory) ChronStory.close();\n    }",
+    name: "路由的兜底分支（切回时间轴）把今天抽屉一起收掉",
+  },
+  /* 页脚「空 N 天」的三个判据：旧写法在界面里自己数格子，把 4/31、6/31、9/31、11/31
+   * 数成空着的日子（虚报 14，实况 10）。这三条各自改哑，看 test-dates 是否点名。 */
+  {
+    label: "界面恢复自己数日历格（4/31 被当成空一天）",
+    file: "js/today.js",
+    runner: "tools/test-dates.mjs",
+    from: "blanks: Number.isInteger(D.blankDays) ? D.blankDays : null,",
+    to: "blanks: (function () { var n = 0; for (var m = 1; m <= 12; m++) for (var d = 1; d <= (m === 2 ? 29 : 31); d++) if (!recsFor(m, d).length) n++; return n; })(),",
+    name: "js/today.js 不自己数日历格",
+  },
+  {
+    label: "空天数被写成一个常量（日层改了它也不改）",
+    file: "js/today.js",
+    runner: "tools/test-dates.mjs",
+    from: "blanks: Number.isInteger(D.blankDays) ? D.blankDays : null,",
+    to: "blanks: 10,",
+    name: "页脚的空天数确实从日层读 D.blankDays",
+  },
+  {
+    label: "读不到 blankDays 时印 0 而不是不说",
+    file: "js/today.js",
+    runner: "tools/test-dates.mjs",
+    from: '(st.blanks === null ? "" : "，空 " + st.blanks + " 天") +',
+    to: '("，空 " + st.blanks + " 天") +',
+    name: "读不到 blankDays 就省掉这半句",
+  },
+  /* 深链 #/today/4/31：日历上没有这一天。界面要么照实说，要么自己抄一份历表——
+   * 抄的那份永远停在旧口径上，而照画的后果是一个会被当成史实的假日期。 */
+  {
+    label: "界面改抄一份历表（2 月 28 天，date-lib 改了它不知道）",
+    file: "js/today.js",
+    runner: "tools/test-dates.mjs",
+    from: "return D && Array.isArray(D.mdays) && m >= 1 && m <= 12 ? D.mdays[m - 1] : null;",
+    to: "return [31,28,31,30,31,30,31,31,30,31,30,31][m - 1];",
+    name: "js/today.js 里没有自己抄的历表",
+  },
+  {
+    label: "不存在的日子照画（4 月 31 日直接当标题）",
+    file: "js/today.js",
+    runner: "tools/test-dates.mjs",
+    from: "      if (exists === false) { ghost = { m: opts.m, d: opts.d }; day = todayMD(); }",
+    to: "      if (exists === false) day = todayMD();",
+    name: "不存在的日子落回读者的今天",
+  },
+  {
+    label: "13 月这种越界月份被当成「日层没载入」放过去",
+    file: "js/today.js",
+    runner: "tools/test-dates.mjs",
+    from: "    if (!Number.isInteger(m) || !Number.isInteger(d) || m < 1 || m > 12 || d < 1) return false;",
+    to: "    if (!Number.isInteger(m) || !Number.isInteger(d) || d < 1) return false;",
+    name: "越界的月份（13 月）与越界的日（4/31）都判得出",
+  },
+  {
+    label: "路由恢复自己抄一份历表（放过 4/31、吞掉 2/30）",
+    file: "js/router.js",
+    runner: "tools/test-dates.mjs",
+    from: "      return { name: \"today\", params: (Number.isInteger(tm) && Number.isInteger(td)) ? { m: tm, d: td } : {} };",
+    to: "      var ok = tm >= 1 && tm <= 12 && td >= 1 && td <= (tm === 2 ? 29 : 31);\n      return { name: \"today\", params: ok ? { m: tm, d: td } : {} };",
+    name: "js/router.js 不自己抄历表",
+  },
+  {
+    label: "删掉「这个日子不存在」那句说明",
+    file: "js/today.js",
+    runner: "tools/test-dates.mjs",
+    from: `    if (ghost) {
+      var gLen = monthLen(ghost.m);
+      parts.push('<div class="td-bad">链接里写的是 ' + ghost.m + ' 月 ' + ghost.d + ' 日，可' +
+        (gLen === null ? "一年只有 12 个月" : "这个月只有 " + gLen + " 天") +
+        "——本站不替它编一天，已按今天（" + m + " 月 " + d + " 日）打开。</div>");
+    }\n`,
+    to: "",
+    name: "页面当着读者说出「这个日子不存在」",
+  },
+  {
+    label: "空白天的铺成长河点了不响",
+    file: "js/today.js",
+    runner: "tools/test-dates.mjs",
+    from: "      window.ChronDetail.flash && window.ChronDetail.flash(\"这一天本库没有可核对的纪日，长河铺不出来\", 4000);\n",
+    to: "",
+    name: "空白天的「铺成长河」有话说",
+  },
+  /* —— 「此后」钩子（详情底部三年后/三十年后/这些人后来）—— */
+  {
+    label: "详情不再拼入「此后」（函数写好了没人调）",
+    file: "js/detail.js",
+    runner: "tools/test-units.mjs",
+    from: "    html += laterBlock(ev);\n",
+    to: "",
+    name: "renderEvent 真的把「此后」拼进详情",
+  },
+  {
+    label: "口径说明没了样式（那句「不是因果」混成正文字号）",
+    file: "css/components.css",
+    runner: "tools/test-units.mjs",
+    from: ".detail .d-hint { font-size: 11.6px; line-height: 1.7; color: var(--ink-soft); margin-top: 3px; }\n",
+    to: "",
+    name: ".d-hint 没定义时",
+  },
+  {
+    label: "口径说明淡成 --ink-faint（11.6px 小字 3.15:1，读者读不到那句「不是因果」）",
+    file: "css/components.css",
+    runner: "tools/test-units.mjs",
+    from: ".detail .d-hint { font-size: 11.6px; line-height: 1.7; color: var(--ink-soft);",
+    to: ".detail .d-hint { font-size: 11.6px; line-height: 1.7; color: var(--ink-faint);",
+    name: "「.detail .d-hint」字色",
+  },
+  {
+    label: "口径说明字色写成死值（脱离令牌后静默滑出字色清单，与 .ep-we 同一形态）",
+    file: "css/components.css",
+    runner: "tools/test-units.mjs",
+    from: ".detail .d-hint { font-size: 11.6px; line-height: 1.7; color: var(--ink-soft);",
+    to: ".detail .d-hint { font-size: 11.6px; line-height: 1.7; color: #8d8271;",
+    name: "也在这份字色清单里",
+  },
+  {
+    label: "「三年后」格不再限量（钩子退化成年表）",
+    file: "js/detail.js",
+    runner: "tools/test-units.mjs",
+    from: "  var LATER_CAPS = { three: 3, thirty: 2, people: 3 };",
+    to: "  var LATER_CAPS = { three: 5, thirty: 2, people: 3 };",
+    name: "「三年后」格取满 3 条即止",
+  },
+  {
+    label: "三年窗放宽到四年（把 1904 说成这条的三年后）",
+    file: "js/detail.js",
+    runner: "tools/test-units.mjs",
+    from: "  var LATER_WINDOWS = { three: [1, 3], thirty: [4, 30], people: [1, 30] };",
+    to: "  var LATER_WINDOWS = { three: [1, 4], thirty: [4, 30], people: [1, 30] };",
+    name: "三格的时间窗（年差、含两端）",
+  },
+  {
+    label: "「三十年后」从最近的一年开始收（标题承诺三十年、行里给的是四年后）",
+    file: "js/detail.js",
+    runner: "tools/test-units.mjs",
+    from: "farFirst: true });",
+    to: "farFirst: false });",
+    name: "「三十年后」的两个名额从窗口远端收下",
+  },
+  {
+    label: "调用处把年份又抄了一遍（改表时页面还念旧数）",
+    file: "js/detail.js",
+    runner: "tools/test-units.mjs",
+    from: "    var three = ahead(ev, W.three[0], W.three[1], {});",
+    to: "    var three = ahead(ev, 1, 3, {});",
+    name: "laterPick 三处窗口全从 LATER_WINDOWS 取",
+  },
+  {
+    label: "口径句里的年份写成死数字（表改了那句还报 1–3）",
+    file: "js/detail.js",
+    runner: "tools/test-units.mjs",
+    from: "    parts.push('<div class=\"para\"><div class=\"d-hint\">「三年后」取本条之后 ' + W.three[0] + '–' + W.three[1] + ' 年的同轨条目，' +",
+    to: "    parts.push('<div class=\"para\"><div class=\"d-hint\">「三年后」取本条之后 1–3 年的同轨条目，' +",
+    name: "口径句里的年份也从表里取",
+  },
+  {
+    label: "三十年格放开维度（异维的事冒充本条的后续）",
+    file: "js/detail.js",
+    runner: "tools/test-units.mjs",
+    from: "    var thirty = ahead(ev, W.thirty[0], W.thirty[1], { sameDim: true, exclude: seen, farFirst: true });",
+    to: "    var thirty = ahead(ev, W.thirty[0], W.thirty[1], { exclude: seen, farFirst: true });",
+    name: "三十年格只收同一维度",
+  },
+  {
+    label: "钩子绕过溯源门槛（顶栏筛了、这一格照给）",
+    file: "js/detail.js",
+    runner: "tools/test-units.mjs",
+    from: "      if (!S.passesFilter(e)) continue;",
+    to: "      if (false) continue;",
+    name: "被溯源门槛筛掉的条目不进「此后」",
+  },
+  {
+    label: "窗口空了也照样出格（硬凑一条邻近）",
+    file: "js/detail.js",
+    runner: "tools/test-units.mjs",
+    from: "    if (laterEmpty(pick)) return \"\";",
+    to: "    if (false) return \"\";",
+    name: "全空时整格不出",
+  },
+  /* ---- 正文内联引用与相对年份（XREF_DANGLING / REL_YEAR）----
+   * 这对门管的是散文里手写的「（见 cn--xxxx）」：related 那几道门一条都看不见它，
+   * 而年差算错时读者按那句话去换算，得到的正好是错的那一年。四条变异各对应
+   * tools/test-gates.mjs 五·乙 里的一条用例——判据哑、扫描域缩到只认括号、
+   * 多目标只算第一个、断链不报，四种失效方式都必须在这里现形。 */
+  {
+    label: "REL_YEAR 不再比对年差（相对年份怎么写都不红）",
+    file: "tools/validate.mjs",
+    from: '            const delta = target.year - anchor;\n            if (delta !== n)',
+    to: '            const delta = target.year - anchor;\n            if (false && delta !== n)',
+    name: "REL_YEAR 可红（指错条目）",
+  },
+  {
+    label: "XREF_DANGLING 恒不报（正文引用指向作废 id 也看不见）",
+    file: "tools/validate.mjs",
+    from: '          if (!idSet.has(m[0])) E(c.id, "XREF_DANGLING",',
+    to: '          if (false && !idSet.has(m[0])) E(c.id, "XREF_DANGLING",',
+    name: "XREF_DANGLING 可红",
+  },
+  {
+    label: "REL_YEAR 只认带括号的引用（裸「见 id」18 处出扫描域）",
+    file: "tools/validate.mjs",
+    from: '(?:（见|见)',
+    to: '（见',
+    name: "裸「见 id」也在扫描域内",
+  },
+  {
+    label: "REL_YEAR 多目标只算第一个 id（「见 a、b」的 b 永不入检）",
+    file: "tools/validate.mjs",
+    from: 'for (const id of m[4].split("、")) {',
+    to: 'for (const id of [m[4].split("、")[0]]) {',
+    name: "多目标（见 a、b）逐个算",
   },
 ];
 

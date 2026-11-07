@@ -1,0 +1,99 @@
+# 贡献者的 PR 靠人审是审不过来的：4900 条数据、一整套本地门，人工复核一轮就是几小时。
+# 这份工作的职责只有一件事——把本地那几道门在 clone 视图里再跑一遍，让「格式不合法」
+# 「悬空 related」「文档引用失准」这类缺陷在评论里就被挡住，维护者的人力留给历史判断。
+#
+# 刻意不做的两件事：
+#   1) 不部署。发布是维护者的手动动作（README「上线为公开站点」A 第 5 步 / B 第 7 步），
+#      CI 里没有凭据，也不该有。绿色检查 ≠ 已上线，两者必须分开。
+#   2) 不自动并档投稿。tools/intake.mjs 在这里只跑它自己的功能门（test-intake），
+#      不去拉 issue、不写 data/、不建 PR。分诊台产出的是「待裁清单」，裁定必须是人的动作。
+#
+# 零构建 = 这里不需要 npm install：没有任何依赖，node 就是全部运行时。
+# 一旦某天加了依赖，本文件要同步改成先跑 npm ci，否则门禁在 CI 上会比本地更松。
+name: gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  all-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # 数据本体：字段契约、id 规则、悬空 related、分布失衡
+      - name: validate --strict
+        run: node tools/validate.mjs --strict
+
+      # 地理层：地名表 schema、叠加层与「表+语料」的一致性、行迹与快照的出处
+      - name: validate-geo
+        run: node tools/validate-geo.mjs
+
+      # 视角层：主张必须逐字引条目原文；极限词要有判据与范围；非确证要写争议
+      - name: validate-frame
+        run: node tools/validate-frame.mjs
+
+      # 成就线：九条线仍在、成员与锚点没塌、成就维出处不退化、评价词不漏进事实层
+      - name: validate-achv
+        run: node tools/validate-achv.mjs
+
+      # 故事层：每个小故事必须锚在真条目上、kind 四选一、标「原文」就得给得到位置、
+      # 笔记异闻/后世附会必须写清为什么还值得看
+      - name: validate-story
+        run: node tools/validate-story.mjs
+
+      # 涟漪层：每一环必须锚在真条目上、年份严格递增、落点是小事件、
+      # 标「有出处」的材料名必须逐字出自两端条目自己的 sources、每链必须有一句在怀疑这条连接
+      - name: validate-chain
+        run: node tools/validate-chain.mjs
+
+      # 日层：每一个「月/日」必须能从条目自己的文本里现算出来并与盘上逐字对上；
+      # 覆盖率掉下去意味着「历史上的今天」在某些日子会悄悄空掉
+      - name: validate-dates
+        run: node tools/validate-dates.mjs
+
+      # 前端纯函数与样式实测（对比度、层级、溯源分级、投稿白名单、备案号挂法）
+      - name: unit gates
+        run: node tools/test-units.mjs
+
+      # 投稿分诊台自身必须能变红（新门先验可红性，见 tools/test-intake.mjs 头部）
+      - name: intake gate
+        run: node tools/test-intake.mjs
+
+      # 跨轨 related 候选器：每条 strong 信号要能单独放行、每个否决门要能单独拦下
+      - name: related-candidates gate
+        run: node tools/test-related-candidates.mjs
+
+      # 零构建地基：file:// 下不可用的写法（fetch/XHR/Worker/module）与根绝对路径
+      - name: static e2e
+        run: node tools/e2e-static.mjs
+
+      # 文档引用对账：README / DATA_SCHEMA / CONTRIBUTING 里每处「条目 id + 权重」与语料一致
+      - name: doc citations
+        run: node tools/doc-cite.mjs
+
+      # 三道「审门」的门：自审器覆盖度、死门变异用例、文档引用对账的红性证明
+      - name: gates meta
+        run: |
+          node tools/test-gates.mjs
+          node tools/test-gates-meta.mjs
+          node tools/test-doc-cite.mjs
+
+      # 地理门、视角门、成就线门、故事门、涟漪门、日门自己的可红性：新门未证明能红，等于新增一道会骗人的门
+      - name: geo + frame + achv + story + chain + dates gate redness
+        run: |
+          node tools/test-geo.mjs
+          node tools/test-frame.mjs
+          node tools/test-achv.mjs
+          node tools/test-story.mjs
+          node tools/test-chain.mjs
+          node tools/test-dates.mjs

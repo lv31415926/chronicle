@@ -1,11 +1,11 @@
 /* manifest.js | 自动生成，请勿手工编辑
  * 重新生成: node tools/gen-manifest.mjs
- * 生成时间: 2026-09-22 07:43:08
- * 分片数 27 | 事件总数 4900
+ * 生成时间: 2026-11-07 13:47:48
+ * 分片数 29 | 事件总数 4968
  */
 window.__CHRONICLE_MANIFEST = {
-  generatedAt: "2026-09-22T07:43:08.375Z",
-  total: 4900,
+  generatedAt: "2026-11-07T13:47:48.636Z",
+  total: 4968,
   chunks: [
     { id: "cn-01", file: "cn/cn-01.js", track: "cn", count: 130, yearFrom: -3000, yearTo: -842 },
     { id: "wd-01", file: "wd/wd-01.js", track: "world", count: 273, yearFrom: -3000, yearTo: -479 },
@@ -13,11 +13,13 @@ window.__CHRONICLE_MANIFEST = {
     { id: "wd-02", file: "wd/wd-02.js", track: "world", count: 330, yearFrom: -478, yearTo: 500 },
     { id: "cn-10", file: "cn/cn-10.js", track: "cn", count: 142, yearFrom: -476, yearTo: -380 },
     { id: "cn-11", file: "cn/cn-11.js", track: "cn", count: 136, yearFrom: -349, yearTo: -222 },
-    { id: "cn-03", file: "cn/cn-03.js", track: "cn", count: 226, yearFrom: -221, yearTo: 59 },
+    { id: "cn-17", file: "cn/cn-17.js", track: "cn", count: 78, yearFrom: -221, yearTo: -141 },
+    { id: "cn-03", file: "cn/cn-03.js", track: "cn", count: 80, yearFrom: -139, yearTo: -87 },
+    { id: "cn-18", file: "cn/cn-18.js", track: "cn", count: 118, yearFrom: -86, yearTo: 59 },
     { id: "wd-08", file: "wd/wd-08.js", track: "world", count: 139, yearFrom: 4, yearTo: 498 },
-    { id: "cn-08", file: "cn/cn-08.js", track: "cn", count: 221, yearFrom: 73, yearTo: 588 },
-    { id: "wd-03", file: "wd/wd-03.js", track: "world", count: 340, yearFrom: 506, yearTo: 1498 },
-    { id: "cn-04", file: "cn/cn-04.js", track: "cn", count: 160, yearFrom: 589, yearTo: 1278 },
+    { id: "cn-08", file: "cn/cn-08.js", track: "cn", count: 223, yearFrom: 73, yearTo: 588 },
+    { id: "wd-03", file: "wd/wd-03.js", track: "world", count: 341, yearFrom: 506, yearTo: 1498 },
+    { id: "cn-04", file: "cn/cn-04.js", track: "cn", count: 175, yearFrom: 589, yearTo: 1278 },
     { id: "cn-05", file: "cn/cn-05.js", track: "cn", count: 235, yearFrom: 1276, yearTo: 1643 },
     { id: "wd-04", file: "wd/wd-04.js", track: "world", count: 179, yearFrom: 1500, yearTo: 1799 },
     { id: "cn-12", file: "cn/cn-12.js", track: "cn", count: 137, yearFrom: 1644, yearTo: 1839 },

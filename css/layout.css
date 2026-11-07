@@ -267,6 +267,10 @@ body.dragging #tl-canvas { cursor: grabbing; }
   display: flex; flex-direction: column;
 }
 .detail.open { transform: none; }
+/* 详情抽屉平时靠 transform 移出屏幕，但 close() 之后还会补一个 hidden=true：
+ * 那一步若只靠 UA 的 [hidden] 会被上面的 display:flex 压过去，「隐藏」就成了
+ * 一个纯靠位移维持的状态。位移与 display 两条路各能单独兜住，才算真的收起。 */
+.detail[hidden] { display: none; }
 .d-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 9px 14px; border-bottom: 1px solid var(--rule); background: var(--bg-elev); flex: 0 0 auto;

@@ -1,0 +1,50 @@
+/* topic.css | 静态专题页（无 JS，纯文档排版）
+ * 只借 base.css 的令牌，不借主站的布局：专题页是给搜索引擎与打印看的，
+ * 主站那套 fixed 层与画布在这里只会碍事。
+ */
+.topic-body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--font-sans); }
+.tp-crumb { padding: 12px 20px; border-bottom: 1px solid var(--rule); font-size: 12px; color: var(--ink-soft); }
+.tp-crumb a { color: var(--link); text-decoration: none; }
+.tp-art { max-width: 820px; margin: 0 auto; padding: 24px 20px 48px; }
+.tp-art h1 { margin: 0 0 4px; font-family: var(--font-serif); font-size: 30px; font-weight: 600; }
+.tp-art h1 small { margin-left: 10px; font-size: 14px; color: var(--ink-faint); font-family: var(--font-sans); font-weight: 400; }
+.tp-art h2 { margin: 26px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--rule); font-size: 15px; }
+.tp-lead { color: var(--ink-soft); font-size: 14px; line-height: 1.7; }
+.tp-src { color: var(--ink-faint); font-size: 12px; }
+.tp-meta { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; margin: 14px 0; font-size: 13px; }
+.tp-meta dt { color: var(--ink-faint); }
+.tp-meta dd { margin: 0; color: var(--ink); }
+.tp-list, .tp-stops { padding-left: 22px; margin: 8px 0; }
+.tp-list li, .tp-stops li { margin: 8px 0; line-height: 1.6; font-size: 14px; }
+.tp-list a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+.tp-list a:hover { color: var(--link); }
+.tp-list .sum, .tp-stops .sum { display: block; color: var(--ink-soft); font-size: 13px; }
+.tp-list .src, .tp-stops .src { display: block; color: var(--ink-faint); font-size: 12px; font-family: var(--font-mono); }
+.tp-list .pl, .tp-stops .pl { display: inline-block; margin-right: 8px; color: var(--gold-text); font-size: 12px; }
+.tp-nav { list-style: none; padding: 0; columns: 2; gap: 24px; font-size: 14px; }
+.tp-nav li { margin: 4px 0; break-inside: avoid; }
+.tp-nav a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+.tp-more { color: var(--ink-faint); font-size: 13px; }
+.tp-cta { margin: 22px 0 0; display: flex; gap: 10px; flex-wrap: wrap; }
+.tp-btn { display: inline-block; padding: 8px 14px; background: var(--bg-elev); border: 1px solid var(--rule); border-radius: var(--r-md); color: var(--ink); text-decoration: none; font-size: 13px; }
+.tp-btn:hover { background: var(--bg-hover); }
+.tp-foot { max-width: 820px; margin: 0 auto; padding: 18px 20px 40px; border-top: 1px solid var(--rule); color: var(--ink-faint); font-size: 12px; line-height: 1.7; }
+.tp-foot a { color: var(--link); }
+@media (max-width: 640px) { .tp-nav { columns: 1; } .tp-meta { grid-template-columns: 1fr; } }
+
+/* 看点页（视角层） */
+.hl-card { padding: 14px 0; border-top: 1px solid var(--rule); }
+.hl-card h3 { margin: 0 0 4px; font: 600 17px/1.5 var(--font-serif); }
+.hl-card h3 a { color: var(--ink); text-decoration: none; }
+.hl-y, .hl-tk { margin-left: 8px; font: 400 12px/1.5 var(--font-sans); color: var(--ink-faint); }
+.hl-why { margin: 4px 0; color: var(--ink); font-size: 14px; line-height: 1.7; }
+.hl-claim { margin: 6px 0; font-size: 14px; line-height: 1.7; color: var(--ink); }
+.hl-claim b, .hl-peer b, .hl-dis b { display: inline-block; margin-right: 6px; font: 400 10px/1.6 var(--font-sans); padding: 1px 6px; border: 1px solid var(--rule); border-radius: var(--r-sm); color: var(--ink-faint); }
+.hl-st { margin-left: 6px; padding: 1px 6px; background: var(--gold-soft); color: var(--gold-text); border-radius: var(--r-sm); font-size: 11px; }
+.hl-ground { margin: 6px 0; padding: 8px 11px; background: var(--bg-elev); border-left: 3px solid var(--rule); color: var(--ink-soft); font: 400 13px/1.7 var(--font-serif); }
+.hl-ground b { font: 400 10px/1.6 var(--font-sans); color: var(--ink-faint); margin-right: 6px; }
+.hl-kou { color: var(--ink-faint); font-size: 12px; }
+.hl-peer { margin: 6px 0; padding: 8px 10px; background: var(--bg-elev); border-radius: var(--r-sm); font-size: 13px; line-height: 1.7; color: var(--ink-soft); }
+.hl-peer a { color: var(--link); text-decoration: none; }
+.hl-dis { margin: 6px 0; padding-left: 9px; border-left: 2px solid var(--cn); font-size: 13px; line-height: 1.7; color: var(--ink-soft); }
+.hl-src code { margin-right: 6px; color: var(--ink-faint); font-size: 11px; }

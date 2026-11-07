@@ -110,6 +110,11 @@
   font-family: var(--font-sans); font-weight: 600; margin-bottom: 4px; text-transform: uppercase;
 }
 .detail .para p { margin: 0 0 7px; font-size: 13.6px; line-height: 1.78; color: var(--ink-soft); }
+/* 「此后」三格的口径说明。用 div 而不是 p：.detail .para p 是「两类一型」的权重，
+ * 挂在 p 上要赢它就得再加一层类，故事层已经在这一处踩过（见 css/story.css 的注）。
+ * 字色走 --ink-soft 而不是 --ink-faint：这一句是本站对读者的承诺（窗口多大、是不是因果），
+ * 实测 --ink-faint 在四层底色上最差只剩 3.15:1（11.6px 小字），淡到读不出等于没写。 */
+.detail .d-hint { font-size: 11.6px; line-height: 1.7; color: var(--ink-soft); margin-top: 3px; }
 .detail .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .detail ul.src { margin: 0; padding-left: 18px; font-size: 12.2px; color: var(--ink-faint); line-height: 1.7; }
 .detail .ev-head { padding-bottom: 12px; border-bottom: 1px solid var(--rule-soft); margin-bottom: 15px; }

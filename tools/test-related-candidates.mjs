@@ -16,15 +16,19 @@
  *   二、阴性：过泛共名、高 df 共词/标签/地望、仅同年同维、越窗、同轨，默认必须全不出，
  *       加 --weak 必须全出（否则 strong 门是死门、--weak 是空开关）；越窗与同轨连 --weak 也不许出。
  *   三、真语料不变量：候选必跨轨、年差 ≤5、必 strong，且与 tools/related-cross.json 的
- *       accepted∪rejected 双向对账——候选多于留痕即裁定不完备，留痕多于候选即写了编造边。
+ *       accepted∪rejected 双向对账——候选多于留痕即裁定不完备，留痕多于候选即写了编造边；
+ *       再拿盘上 related 与 accepted 对账——盘上有边而台账无留痕即越权边（候选器看不见年窗
+ *       外的边，这一头只能直接数盘），accepted 有而盘上无即裁定未落盘。
  */
 import { execFileSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
+import { loadCorpus, useRoot } from "./geo-lib.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+useRoot(ROOT);
 let pass = 0, fail = 0;
 const results = [];
 function expect(label, ok, detail) {
@@ -191,9 +195,26 @@ if (strict.code !== 0 || weak.code !== 0) {
     const invented = [...disposed].filter((k) => !cand.has(k));
     expect("候选器 · 每条候选都有裁定留痕", !undecided.length,
       undecided.length ? `未裁定 ${undecided.length} 组：${undecided.slice(0, 5).join(" ")}` : `候选 ${cand.size} 组全部落在 accepted∪rejected`);
-    expect("候选器 · 落盘边都出自候选集（无编造）", !invented.length,
+    expect("候选器 · 裁定留痕都出自候选集（台账无编造）", !invented.length,
       invented.length ? `留痕里有候选之外的对 ${invented.length} 组：${invented.slice(0, 5).join(" ")}`
         : `accepted ${(doc.accepted || []).length} + rejected ${(doc.rejected || []).length} 未超出候选集`);
+
+    /* 盘上跨轨边 ↔ accepted 台账：候选器看不见「没有候选资格的边」，
+       所以年窗外的越权边只能靠这一条直接对账（曾经有一条 3153 年跨度的单向边静默存活） */
+    const EN = loadCorpus();
+    const known = new Set(EN.map((e) => e.id));
+    const disk = new Set();
+    for (const e of EN) for (const r of e.related || []) {
+      if (!known.has(r) || (r.startsWith("cn--") === e.id.startsWith("cn--"))) continue;
+      disk.add(key(e.id, r));
+    }
+    const acc = new Set((doc.accepted || []).map((p) => key(p.a, p.b)));
+    const orphan = [...disk].filter((k) => !acc.has(k));
+    const unlanded = [...acc].filter((k) => !disk.has(k));
+    expect("候选器 · 盘上跨轨边与 accepted 一一对应", !orphan.length && !unlanded.length,
+      orphan.length || unlanded.length
+        ? `无留痕 ${orphan.slice(0, 5).join(" ") || "无"}｜未落盘 ${unlanded.slice(0, 5).join(" ") || "无"}`
+        : `盘上跨轨无向边 ${disk.size} = accepted ${acc.size}，双向无差`);
   }
 }
 

@@ -16,16 +16,23 @@ import { fileURLToPath } from "url";
 import { execFileSync } from "child_process";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const GATES = ["validate", "test-units", "e2e-static", "test-doc-cite", "test-gates", "test-gates-meta"];
-/* clone 之后没有 author 侧脚本，这一组足以判定「少没少文件」；全跑两遍要几分钟。 */
-const STAGING_GATES = ["validate", "e2e-static", "test-units", "test-doc-cite"];
+const GATES = ["validate", "validate-geo", "validate-frame", "validate-achv", "validate-story", "validate-chain", "validate-dates", "test-units", "test-intake", "test-related-candidates", "e2e-static", "test-doc-cite", "test-gates", "test-gates-meta", "test-geo", "test-frame", "test-achv", "test-story", "test-chain", "test-dates"];
+/* clone 之后没有 author 侧脚本，这一组足以判定「少没少文件」；全跑两遍要几分钟。
+ * test-intake 有意留在工作树这一侧：它测的是分诊台这个工具，不是发布出去的内容——
+ * 纯净目录里少一个 author 侧脚本不该把发布判红，正如它多了也不该让读者多得到什么。
+ * validate-story 进 staging：故事层是发布出去的内容，而且它是本站自己写句子的两层之一。
+ * validate-chain 同理进 staging：涟漪层不写句子，它写的是「因为 A 所以后来有 B」——
+ *   这一层一旦漏了一片或凭空多出一个材料名，读者在盘上看不出来，只能在发布出去的内容里被误导。
+ * validate-dates 同理进 staging：日层是发布出去的内容，而且它是全站唯一一个「日期从哪来」
+ * 能被读者验算的地方——data/dates.js 少了、或被手改过，都只能在这道门上露出来。 */
+const STAGING_GATES = ["validate", "validate-geo", "validate-frame", "validate-achv", "validate-story", "validate-chain", "validate-dates", "e2e-static", "test-units", "test-doc-cite"];
 const SINGLE_FILE_MAX = 5 * 1024 * 1024;
 
 let fails = 0;
 function bad(msg) { fails++; console.log("❌ " + msg); }
 function good(msg) { console.log("✅ " + msg); }
 
-/* ===== ① 工作树：六道门全跑 ===== */
+/* ===== ① 工作树：GATES 全跑 ===== */
 function runGate(dir, name) {
   try {
     const out = execFileSync(process.execPath, [path.join(dir, "tools", name + ".mjs"),
@@ -77,16 +84,25 @@ const reconcile = (restored, listed) => restored === listed ? null :
  * 且 stat 失败若只记成 -1 会静默通过巨块判据，所以必须先单独拎出来变红。 */
 const missingFrom = (list) => list.filter((p) => !fs.existsSync(path.join(ROOT, p)));
 
-/* ===== 自审：这两条判据本身得能为红，否则「清单一致」只是一句没人验证的话 ===== */
+/* 工作树与索引*内容*不一致（已跟踪但改了没 add）：①跑的是盘上新代码，②跑的是索引里的旧 blob。
+ * 本轮 validate-achv 就是「①绿②红」，真凶是 wd-01.js 没暂存，而旧提示把矛头指向 .gitignore。 */
+const divergedFrom = (diffNameOnly, list) => {
+  const set = new Set(String(diffNameOnly).split("\n").filter(Boolean));
+  return list.filter((p) => set.has(p));
+};
+
+/* ===== 自审：这几条判据本身得能为红，否则「清单一致」只是一句没人验证的话 ===== */
 {
   const dead = [];
+  if (divergedFrom("README.md\n", ["README.md", "index.html"]).join() !== "README.md") dead.push("内容一致判据抓不到已跟踪但盘上改了的文件");
+  if (divergedFrom("build/output.js\n", ["README.md", "index.html"]).length) dead.push("内容一致判据把不在索引里的路径也算成越界");
   if (reconcile(95, 1) === null) dead.push("对账判据在 95≠1 时不报红（清单缩到 1 个文件也没人管）");
   if (reconcile(95, 95) !== null) dead.push("对账判据在 95=95 时报红（恒红＝下一轮有人把它删掉）");
   if (!missingFrom(["tools/__probe_should_never_exist__.mjs"]).length)
     dead.push("缺失文件判据抓不到必然不存在的路径");
   if (missingFrom(["README.md"]).length) dead.push("缺失文件判据误伤在盘上的文件");
-  dead.length ? bad("发布面判据漏网：" + dead.join("；") + "（下面两条「一致」不可信）")
-              : good("对账与缺失判据自审：正反各两例全对");
+  dead.length ? bad("发布面判据漏网：" + dead.join("；") + "（下面三条「一致」不可信）")
+              : good("对账、缺失与内容一致判据自审：正反各两例全对");
 }
 
 const leaks = tracked.filter((p) => SECRET_RE.test(p));
@@ -101,6 +117,14 @@ untracked.length ? bad("这些文件既没进索引也没被忽略，clone 之�
 const missing = missingFrom(tracked);
 missing.length ? bad("索引里有文件不在工作树上，①与②跑的已不是同一批内容：" + missing.join(" "))
                : good(`被跟踪的 ${tracked.length} 个文件全部在工作树上（工作树门与 clone 视图同题）`);
+
+/* git 取不到就判红，不能当成「没有差异」——那正是把回执写绿的口子。 */
+const diffOut = git(["diff", "--name-only"]);
+const diverged = diffOut === null ? null : divergedFrom(diffOut, tracked);
+if (diverged === null) bad("git diff --name-only 失败，工作树与索引的内容一致性无从判定");
+else if (diverged.length) bad(`这些文件在盘上改了但没进索引，②跑的是索引里的旧内容（先 git add 再判，别只 add 新增的那批）：\n   ` +
+                              diverged.join("\n   "));
+else good(`已跟踪文件的工作树内容与索引一致（①与②判的是同一批内容，共 ${tracked.length} 个）`);
 
 const big = tracked.map((p) => [p, fs.existsSync(path.join(ROOT, p)) ? fs.statSync(path.join(ROOT, p)).size : -1])
                    .filter(([, s]) => s > SINGLE_FILE_MAX);
@@ -122,7 +146,7 @@ try {
   for (const g of STAGING_GATES) {
     const r = runGate(tmp, g);
     (r.rc === 0 ? good : bad)(g.padEnd(16) + " rc=" + r.rc + "  " + r.last);
-    if (r.rc !== 0) console.log("   ↑ 这一条在本地工作树是全绿的 ⇒ 缺的文件被 .gitignore 挡掉了");
+    if (r.rc !== 0) console.log("   ↑ 这一条在本地工作树是全绿的 ⇒ ①与②判的不是同一批内容：要么文件没进索引（见上面的漏网判据），要么进了索引但盘上又改了没再 add（见上面的内容一致判据）");
   }
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });

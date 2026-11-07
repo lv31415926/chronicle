@@ -19,17 +19,22 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
+import { markOwner, reclaimStale, ownerAlive } from "./tmp-sweep.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "gate-mut-"));
 
 /* 失败时刻意保留现场（见文末），一份副本 30MB+，只留不清必积累成几百兆。
- * 前缀 gate-mut- 由本文件独占，因此清理旧现场不会碰到别人的目录。 */
+ * 但「前缀 gate-mut- 由本文件独占」不等于「同一时刻只有一份」：另一个终端正在跑门禁、
+ * 或 test-gates-meta 在它的副本里拉起本文件时，无差别回收会删掉对方正在用的目录——
+ * 实测两种后果：一边 ENOTEMPTY 当场崩，另一边更坏，副本半途没了而门禁照样判绿。
+ * 所以回收判据搬到 tools/tmp-sweep.mjs（带归属文件 + pid 存活），两个 runner 共用一份。 */
+const SWEEP_PARENT = path.dirname(TMP), SWEEP_BASE = path.basename(TMP);
 {
-  const parent = path.dirname(TMP), base = path.basename(TMP);
-  const stale = fs.readdirSync(parent).filter((n) => n.startsWith("gate-mut-") && n !== base);
-  for (const n of stale) fs.rmSync(path.join(parent, n), { recursive: true, force: true });
-  if (stale.length) console.log(`已回收上次运行遗留的 ${stale.length} 份现场副本`);
+  markOwner(TMP);
+  const r = reclaimStale("gate-mut-", SWEEP_PARENT, SWEEP_BASE);
+  if (r.reclaimed) console.log(`已回收上次运行遗留的 ${r.reclaimed} 份现场副本` +
+    (r.kept ? `；另 ${r.kept} 份正被别的会话占用，不动` : ""));
 }
 
 function fresh(name) {
@@ -62,6 +67,34 @@ function expect(label, ok, detail) {
   results.push({ label, ok, detail });
   if (ok) pass++;
   else fail++;
+}
+
+/* ───────── 〇、现场回收判据：清理程序自己也得能被验红 ─────────
+ * 回收逻辑是个会删文件的循环，它有两种相反的失效：把别人正在用的副本删了
+ * （对端表现为崩溃，或更坏——副本没了却仍打印通过），以及谁都不删（几百兆堆在 tmp）。
+ * 两种都不能靠「看起来没事」来确认，所以在这里造三个探针目录现跑一遍：
+ * 活 pid 归属的必须留下，归属无效和没有归属文件的必须被回收。
+ * 探针只碰 tmp 下自建的 gate-mut-selfcheck-* 空目录，不动任何真副本。 */
+{
+  const mk = (n, pid) => {
+    const dir = path.join(SWEEP_PARENT, n);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    if (pid !== null) markOwner(dir, pid);
+    return dir;
+  };
+  const live = mk("gate-mut-selfcheck-live", process.pid);
+  const dead = mk("gate-mut-selfcheck-dead", 0);            // pid 0 不是可存活的进程号
+  const orphan = mk("gate-mut-selfcheck-noowner", null);    // 老版本现场：没有 .owner
+  const again = reclaimStale("gate-mut-", SWEEP_PARENT, SWEEP_BASE);
+  expect("现场回收 · 存活会话的副本不得被删（否则对端假绿）", fs.existsSync(live),
+    `本进程 pid=${process.pid} 归属的探针目录${fs.existsSync(live) ? "留下" : "被删了"}；判据见 tools/tmp-sweep.mjs`);
+  expect("现场回收 · 归属无效与无主旧现场仍要回收",
+    !fs.existsSync(dead) && !fs.existsSync(orphan) && again.reclaimed >= 2,
+    `死归属=${fs.existsSync(dead) ? "未回收" : "已回收"} 无主=${fs.existsSync(orphan) ? "未回收" : "已回收"} 本轮回收数=${again.reclaimed}`);
+  fs.rmSync(live, { recursive: true, force: true });
+  expect("现场回收 · 归属读取只认 .owner（判据与 tools/tmp-sweep.mjs 同源）",
+    ownerAlive(SWEEP_PARENT) === false, `把父目录（没有 .owner）读成有主 = 回收会永久空转`);
 }
 
 /* ───────── 一、e2e-static.mjs：七项静态不变量 + 干净基线 ───────── */
@@ -124,6 +157,17 @@ for (const [label, mutate, code] of E2E_CASES) {
     `rc=${r.code}\n    ` + r.out.split("\n").filter(Boolean).slice(-4).join("\n    "));
 }
 
+/* CHRON_ORDER 的反噪声对照：模块头普遍写着「发布：window.ChronX」这类散文。
+ * 若整行注释也算读取，门会为注释变红，人们改的是注释而不是脚本顺序——
+ * 那扇门从此只会教人绕路。这里要求「只有注释提到」时门必须保持绿。 */
+{
+  const dir = fresh("e2e-chron-comment");
+  putIn(dir, "js/palette.js", "/* 依赖：window.ChronMeta ｜ 发布：window.ChronPalette */\n" + readIn(dir, "js/palette.js"));
+  const r = gate("node", [`${dir}/tools/e2e-static.mjs`], dir);
+  expect("e2e · CHRON_ORDER 不把整行注释当读取（反噪声对照）",
+    r.code === 0, `rc=${r.code}\n    ` + r.out.split("\n").filter(Boolean).slice(0, 5).join("\n    "));
+}
+
 /* ───────── 二、weight-change.mjs：授权集合的每条拒绝分支 ───────── */
 const SHARD_REL = "data/cn/cn-13.js";
 function loadShard(p) {
@@ -132,6 +176,19 @@ function loadShard(p) {
   return Object.values(global.window.__CHRONICLE_CHUNK)[0];
 }
 const WHY = "§4 之判定：变异自审用的占位理由，长度足够通过 why 校验";
+
+/* 以下两件是「改分片里某一条」的通用地基，五 与 五·乙 共用，故放在模块层：
+ * 各写一份的话，其中一份的求值回读迟早被改哑，用例就退化成「把语法写坏也当门红」。 */
+const lineId = (l) => (/^\s*\{ ?"?id"? ?: ?"([^"]+)"/.exec(l) || [])[1];
+/** 写盘前先回读求值，并返回解析结果：分片一旦被变异写坏（键名丢失、引号失衡），
+ *  validate 会在解析阶段崩掉、所有门都跑不到，用例就会把「语法坏了」误判成「门不会红」。 */
+function putChecked(dir, rel, text) {
+  const w = { window: {} };
+  try { new Function("window", text)(w.window); }
+  catch (e) { throw new Error(`变异后的分片无法解析（用例作废；别把崩溃当成门红）：${e.message}`); }
+  putIn(dir, rel, text);
+  return Object.values(w.window.__CHRONICLE_CHUNK)[0] || [];
+}
 
 /* 运行时从分片推导用例目标，不硬编码 id 与权重 */
 const baseDir = fresh("wt");
@@ -290,18 +347,8 @@ if (!target || !other) {
   const WD = "data/wd/wd-10.js";
   const FIELD = (k) => new RegExp('((?:[{,]\\s*)"?' + k + '"?:\\s*)"((?:[^"\\\\]|\\\\.)*?)"(?=\\s*[,}])');
   const norm = (s) => String(s).replace(/[^\p{Script=Han}0-9A-Za-z]/gu, "");
-  const lineId = (l) => (/^\s*\{ ?"?id"? ?: ?"([^"]+)"/.exec(l) || [])[1];
   const groupBy = (arr, f) => { const m = new Map(); for (const e of arr) { const k = f(e); if (!m.has(k)) m.set(k, []); m.get(k).push(e); } return m; };
 
-  /** 写盘前先回读求值，并返回解析结果：分片一旦被变异写坏（键名丢失、引号失衡），
-   *  validate 会在解析阶段崩掉、所有门都跑不到，用例就会把「语法坏了」误判成「门不会红」。 */
-  function putChecked(dir, rel, text) {
-    const w = { window: {} };
-    try { new Function("window", text)(w.window); }
-    catch (e) { throw new Error(`变异后的分片无法解析（用例作废；别把崩溃当成门红）：${e.message}`); }
-    putIn(dir, rel, text);
-    return Object.values(w.window.__CHRONICLE_CHUNK)[0] || [];
-  }
   /** 解析结果里必须确实躺着新值——键名被写丢时求值照样通过，只有回读能抓到 */
   function landed(arr, id, key, want) {
     const e = arr.find((x) => x.id === id);
@@ -524,7 +571,7 @@ if (!target || !other) {
    * 投稿人填了核对记录、标签毫无变化，也没有任何东西告诉他为什么。
    * 所以这里既证明坏输入必红，也证明合式输入绝不红——后者才守住「不敢报错的门」。 */
   {
-    const CODES = ["TIER_FIELD", "CHECK_SHAPE", "CHECK_WITHOUT_SOURCE"];
+    const CODES = ["TIER_FIELD", "CHECK_SHAPE", "CHECK_BY_LOCATOR", "CHECK_WITHOUT_SOURCE"];
     const d0 = fresh("pv0");
     const clean = gate("node", [`${d0}/tools/validate.mjs`], d0);
     const ranClean = clean.out.includes("=== ERRORS");
@@ -552,8 +599,13 @@ if (!target || !other) {
         ["checks 非数组立现形", () => inject(fresh("pv2"), withSrc.id, 'checks:"2026-09-01"'), "CHECK_SHAPE", true],
         ["残缺记录（日期非 ISO）立现形", () => inject(fresh("pv3"), withSrc.id, 'checks:[{by:"某某",at:"2026年9月"}]'), "CHECK_SHAPE", true],
         ["残缺记录（缺 by）立现形", () => inject(fresh("pv4"), withSrc.id, 'checks:[{at:"2026-09-01"}]'), "CHECK_SHAPE", true],
+        /* 下面两条形状完全合式，缺的是「位置」。放过它们，「已核」就退化成一句
+         * 无从对质的话——而徽章的说明已向读者承诺「写明查的是哪一处」。 */
+        ["署名不带位置立现形", () => inject(fresh("pv7"), withSrc.id, 'checks:[{by:"某某核过",at:"2026-09-01"}]'), "CHECK_BY_LOCATOR", true],
+        ["署名只写日期立现形", () => inject(fresh("pv8"), withSrc.id, 'checks:[{by:"某某（2026年9月1日核过）",at:"2026-09-01"}]'), "CHECK_BY_LOCATOR", true],
         ["合式空数组不误报", () => inject(fresh("pv5"), withSrc.id, "checks:[]"), null, false],
-        ["合式记录不误报", () => inject(fresh("pv6"), withSrc.id, 'checks:[{by:"某某",at:"2026-09-01",note:"已对原书卷末"}]'), null, false],
+        ["人核记录不误报", () => inject(fresh("pv6"), withSrc.id, 'checks:[{by:"某某（翻中华书局点校本《资治通鉴》卷二百一十二）",at:"2026-09-01",note:"原文作二年"}]'), null, false],
+        ["工具核对不误报", () => inject(fresh("pv9"), withSrc.id, 'checks:[{by:"本站·维基文库比对（史记/卷001 三家注版）",at:"2026-11-07",note:"逐字比对通过"}]'), null, false],
       ];
       for (const [label, mut, code, want] of CASES) {
         let dir, pre = null;
@@ -576,7 +628,7 @@ if (!target || !other) {
       const dw = fresh("pvsrc0");
       let pw = null;
       try {
-        inject(dw, withSrc.id, 'checks:[{by:"某某",at:"2026-09-01"}]');
+        inject(dw, withSrc.id, 'checks:[{by:"某某（核《资治通鉴》卷二百一十二）",at:"2026-09-01"}]');
         setArray(dw, CN, withSrc.id, "sources", "[]");
       } catch (e) { pw = e.message; }
       if (pw) expect("validate · 溯源 记录无出处可报", false, `前置条件失败: ${pw}`);
@@ -589,6 +641,130 @@ if (!target || !other) {
         (ranW ? "" : "（门未执行）"));
       }
     }
+  }
+}
+
+/* ───────── 五·乙、正文内联引用与相对年份（XREF_DANGLING / REL_YEAR）─────────
+ * 散文里手写的「（见 cn--xxxx）」不归 related 那几道门管，2026-11-07 实测盘上
+ * 122 处内联引用中 6 处年差算错、1 处指向作废 id，全是加这对门之前无人可见的。
+ * 用例只从「干净副本双零」这个前提出发把一条改错，不在测试里重算锚年——
+ * 重算一遍等于养第二把尺子，两把尺子迟早分家（§W5_LOW 那类缺陷就是这么来的）。
+ * 挑靶子用的配对模式与门里同形状，但它只选位置、不做判据。
+ * 四条变异各钉一种只有绿门才会漏的失效：断链不重复报、指错条目要红、
+ * 「（见 a、b）」的第二个 id 要算、单目标不得报两遍、裸「见 id」要在扫描域内。 */
+{
+  const REL_SHARD = "data/cn/cn-03.js";
+  const INLINE_ID = String.raw`(?:cn|world)--b\d+--[pfscmeixad]\d{2}|(?:cn|world)--\d{1,4}--[pfscmeixad]\d{2}`;
+  const relAlt = "又明年|明年|次年|后年|后(?:\\d{1,4}|[一二三四五六七八九十]{1,3})年|(?:\\d{1,4}|[一二三四五六七八九十]{1,3})年后";
+  const pairRe = new RegExp(`(${relAlt})[^。；！？]{0,30}（见\\s*(${INLINE_ID})(?=）)`, "g");
+  const GHOST = "cn--b9999--p99";
+
+  const clean = fresh("xref0");
+  const base = gate("node", [`${clean}/tools/validate.mjs`, "--json"], clean);
+  let baseJson = null;
+  try { baseJson = JSON.parse(base.out); } catch { /* 报告缺失时走下面的断言 */ }
+  expect("validate · 内联引用门跑起来了（非崩溃式假绿）", !!baseJson,
+    `rc=${base.code}，` + (baseJson ? `--json 可解析，errors ${baseJson.errors.length} 项` : "报告解析失败——脚本崩了或输出被截断，别当成 0 项不一致"));
+  const baseHit = baseJson ? baseJson.errors.filter((e) => /XREF_DANGLING|REL_YEAR/.test(e.code)) : [];
+  expect("validate · 干净副本内联引用双零", !!baseJson && baseHit.length === 0,
+    baseJson ? `现存 REL_YEAR/XREF_DANGLING ${baseHit.length} 项：` + baseHit.map((e) => e.msg.slice(0, 60)).join(" | ")
+      : "拿不到基线，后面所有「改错一条」的断言都失去前提");
+
+  /* 靶子：一个「相对词 +（见 单个 id）」配对，且该 id 在本片内有同形状可换的兄弟 */
+  const arr = loadShard(path.join(clean, REL_SHARD));
+  const byId = new Map(arr.map((e) => [e.id, e]));
+  let fx = null;
+  for (const e of arr) {
+    for (const k of ["background", "process", "impact"]) {
+      const txt = (e.detail || {})[k];
+      if (typeof txt !== "string") continue;
+      pairRe.lastIndex = 0;
+      for (const m of txt.matchAll(pairRe)) {
+        const idA = m[2];
+        if (!byId.has(idA)) continue;
+        const alt = arr.find((x) => x.id !== idA && x.year !== byId.get(idA).year && /--p\d\d$/.test(x.id));
+        if (!alt) continue;
+        fx = { id: e.id, key: k, match: m[0], idA, id2: alt.id, yearA: byId.get(idA).year, year2: alt.year };
+        break;
+      }
+      if (fx) break;
+    }
+    if (fx) break;
+  }
+  if (!fx) {
+    expect("validate · 内联引用可红（四条变异）", false, `${REL_SHARD} 里挑不出「相对词+（见 单 id）」配对或同片换靶条目，用例无法构造（不得静默 skip）`);
+  } else {
+    const relErrs = (r) => {
+      let j;
+      try { j = JSON.parse(r.out); } catch { return null; }
+      return j.errors.filter((e) => e.code === "REL_YEAR");
+    };
+    const xrefErrs = (r) => {
+      let j;
+      try { j = JSON.parse(r.out); } catch { return null; }
+      return j.errors.filter((e) => e.code === "XREF_DANGLING");
+    };
+    /** 在副本里把这条配对改坏：old→new 须在目标行内恰出现一次 */
+    const mutate = (name, oldFrag, newFrag) => {
+      const dir = fresh(name);
+      const lines = readIn(dir, REL_SHARD).split("\n");
+      const i = lines.findIndex((l) => lineId(l) === fx.id);
+      if (i < 0) throw new Error(`行首找不到条目 ${fx.id}`);
+      const n = lines[i].split(oldFrag).length - 1;
+      if (n !== 1) throw new Error(`靶串在 ${fx.id} 行内命中 ${n} 次（应为 1），换靶子或收紧锚串`);
+      lines[i] = lines[i].replace(oldFrag, newFrag);
+      putChecked(dir, REL_SHARD, lines.join("\n"));
+      const r = gate("node", [`${dir}/tools/validate.mjs`, "--json"], dir);
+      /* --json 模式下没有 === ERRORS 标题，「跑起来了」的唯一硬证是报告能解析；
+       * 解析失败时补跑一次文本模式，把崩在哪一行带回断言详情。 */
+      try { JSON.parse(r.out); } catch {
+        const r2 = gate("node", [`${dir}/tools/validate.mjs`], dir);
+        throw new Error(`变异后 validate 未产出可解析的报告（rc=${r.code}）：${r2.out.slice(0, 160)}`);
+      }
+      return r;
+    };
+    const lineOf = (r, code) => `${code} ${relErrs(r) === null ? "解析失败" : (relErrs(r) || []).length + " 条"}`;
+
+    /* A 断链：指向不存在的 id，须报 XREF_DANGLING，且不重复报 REL_YEAR */
+    let pre = null, r = null;
+    try { r = mutate("xrefA", fx.match, fx.match.replace(fx.idA, GHOST)); } catch (e) { pre = e.message; }
+    if (pre) expect("validate · XREF_DANGLING 可红（断链）", false, `前置条件失败: ${pre}`);
+    else {
+      const xs = xrefErrs(r), rel = relErrs(r);
+      expect("validate · XREF_DANGLING 可红（断链）", r.code === 1 && xs.length === 1 && xs[0].msg.includes(fx.id) && rel.length === 0,
+        `rc=${r.code} XREF=${xs.length} REL=${rel.length}（断链只该由 XREF 报一次，REL 不得跟着重复）；${xs.map((x) => x.msg.slice(0, 70)).join(" | ")}`);
+    }
+
+    /* B 指错条目：换成同片异年的 id，须红且恰报一条（单目标报两遍 = 组号数错） */
+    pre = null; r = null;
+    try { r = mutate("xrefB", fx.match, fx.match.replace(fx.idA, fx.id2)); } catch (e) { pre = e.message; }
+    if (pre) expect("validate · REL_YEAR 可红（指错条目）", false, `前置条件失败: ${pre}`);
+    else {
+      const rel = relErrs(r);
+      expect("validate · REL_YEAR 可红（指错条目）", r.code === 1 && rel.length === 1 && rel[0].msg.includes(fx.id2) && rel[0].msg.includes(fx.id),
+        `rc=${r.code} ${lineOf(r, "REL_YEAR")} 点名 ${fx.id}/${fx.id2}=${rel.map((x) => x.msg.includes(fx.id2)).join(",")}（单目标报两条=多目标组号会漏）；${rel.map((x) => x.msg.slice(0, 80)).join(" | ")}`);
+    }
+
+    /* C 多目标：追加第二个异年 id，门必须把它也算进去（只查第一个时本用例为绿） */
+    pre = null; r = null;
+    try { r = mutate("xrefC", fx.match, fx.match + "、" + fx.id2); } catch (e) { pre = e.message; }
+    if (pre) expect("validate · REL_YEAR 多目标（见 a、b）逐个算", false, `前置条件失败: ${pre}`);
+    else {
+      const rel = relErrs(r);
+      expect("validate · REL_YEAR 多目标（见 a、b）逐个算", r.code === 1 && rel.length === 1 && rel[0].msg.includes(fx.id2),
+        `rc=${r.code} ${lineOf(r, "REL_YEAR")} 点名第二个 id=${rel.map((x) => x.msg.includes(fx.id2)).join(",")}（第一条仍正确，报出的必须是指向 ${fx.id2} 的那条）；${rel.map((x) => x.msg.slice(0, 80)).join(" | ")}`);
+    }
+
+    /* D 裸引用：去掉括号写成「，见 id」，仍在扫描域内（只查括号形式时本用例为绿） */
+    pre = null; r = null;
+    try { r = mutate("xrefD", fx.match, fx.match.replace(`（见 ${fx.idA}`, `，见 ${fx.id2}`)); } catch (e) { pre = e.message; }
+    if (pre) expect("validate · REL_YEAR 裸「见 id」也在扫描域内", false, `前置条件失败: ${pre}`);
+    else {
+      const rel = relErrs(r);
+      expect("validate · REL_YEAR 裸「见 id」也在扫描域内", r.code === 1 && rel.length >= 1 && rel.some((x) => x.msg.includes(fx.id2)),
+        `rc=${r.code} ${lineOf(r, "REL_YEAR")}（盘上裸「见 id」18 处，只认（见 时这些年差全静默）；${rel.map((x) => x.msg.slice(0, 80)).join(" | ")}`);
+    }
+    console.log(`内联引用靶子：${fx ? `${fx.id}.${fx.key} 「${fx.match}」→ ${fx.id2}` : "未构造出来"}`);
   }
 }
 

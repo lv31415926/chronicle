@@ -991,15 +991,22 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
     eq(PV.tierOf(undefined), "unsourced", "传 undefined 不抛异常");
     eq(PV.tierOf({ prov: "verified", tier: "verified", checks: [] }), "unsourced",
        "手写 prov/tier 字段翻不动等级（派生制的全部意义就在这句：条目里没有等级可写）");
-    eq(PV.tierOf({ detail: { sources: ["https://example.com/a"] }, checks: [{ by: "张三", at: "2026-09-20" }] }),
-       "verified", "只有合法的 checks 记录能升到已核");
+    eq(PV.tierOf({ detail: { sources: ["https://example.com/a"] }, checks: [{ by: "张三（核《资治通鉴》卷二百一十二）", at: "2026-09-20" }] }),
+       "verified", "只有合法的 checks 记录能升到已核（署名写明核在哪一处才算合法）");
 
     /* ---- 核对记录的失效形状：每一种都要单独红，不能靠一条兜底 ---- */
     const REJECT = [
-      ["日期写成中文", { by: "张三", at: "2026年9月20日" }],
-      ["日期缺前导零", { by: "张三", at: "2026-9-20" }],
+      /* 一条用例只留一个被拒理由：署名带位置时，被拒才必然归因于日期写法。
+       * 若 by 同时缺位置，摘掉日期校验记录照样被拒，这支变异就悄悄失去了可红性
+       * （test-gates-meta 的对应哨兵会在这里点名）。 */
+      ["日期写成中文", { by: "张三（核《资治通鉴》卷二百一十二）", at: "2026年9月20日" }],
+      ["日期缺前导零", { by: "张三（核《资治通鉴》卷二百一十二）", at: "2026-9-20" }],
       ["没有署名", { at: "2026-09-20" }],
       ["署名全空白", { by: "   ", at: "2026-09-20" }],
+      /* 形状全对、唯独没有位置：这是「已核」最省事的造假方式，也是本档最容易失守的地方。
+       * 日期写在署名里也不行——那一维归 at，写成「2026年9月20日核过」仍然查不到任何一处。 */
+      ["署名不带位置", { by: "张三", at: "2026-09-20" }],
+      ["署名只写日期", { by: "张三（2026年9月20日核过）", at: "2026-09-20" }],
       ["记录不是对象", "我核对过了"],
     ];
     for (const [why, c] of REJECT) {
@@ -1012,8 +1019,8 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
      * 只查「命中 > 0」会让一条早已失效的正则永远假装在工作；只查正则语法更什么都查不到。
      * 所以把「哪些类别应当在精选语料里出现」写死在这里，两侧互证：
      * 该命中的没命中 = 规则随数据格式演进死掉了；不该命中的命中了 = 语料漂进了没人评审过的规则。
-     * link 是唯一例外：5 类里只有它在 11597 条真实出处中 0 命中，它是给投稿预留的。 */
-    const EXPECT = { chapter: true, juan: true, section: true, dated: true, link: false };
+     * link 是唯一例外：6 类里只有它在 11597 条真实出处中 0 命中，它是给投稿预留的。 */
+    const EXPECT = { chapter: true, juan: true, section: true, dated: true, numbered: true, link: false };
     const allSrc = evs.flatMap((e) => PV.sourcesOf(e).map(String));
     ok(allSrc.length > 0, `真语料有 ${allSrc.length} 条出处字符串可供匹配（为空则下面的命中率全在空转）`);
     eq(Object.keys(EXPECT).sort(), PV.KINDS.map((k) => k.key).sort(),
@@ -1027,8 +1034,37 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
          (exp ? "规则已失效却在冒充判据" : "语料漂进了未评审的定位规则，须复核分级口径"));
     }
 
-    /* 可定位 ⇔ 至少命中一类：两条判据若各自演化，标签会与它声称的证据脱钩 */
-    eq(evs.filter((e) => PV.hasLocator(e) !== (PV.tierOf(e) === "locatable")).length, 0,
+    /* ---- 著录编号一类的边界：这类判据最容易把年份当成位置 ----
+     * 它升的是「读者查得到」，靠的是编号；而 1912—1913 这种年跨度长得一模一样，
+     * 一旦算进来，仅书名里最含糊的一批会自动冒充可定位——分级就成了假分级。
+     * 所以正反两侧都用字面串钉死，不依赖语料（语料会变，边界不该跟着变）。 */
+    const NUM_KIND = PV.KINDS.filter((k) => k.key === "numbered");
+    eq(NUM_KIND.length, 1, "KINDS 里恰好一条 numbered（实得 " + NUM_KIND.length + "）：判据挪进别的类就不受本用例保护");
+    const NRE = NUM_KIND[0] && NUM_KIND[0].re;
+    const NUM_YES = ["《甲骨文合集》6412、6413", "《殷周金文集成》10175墙盘、10164散氏盘",
+      "希罗多德《历史》1.96—1.101", "亚里士多德《形而上学》983b",
+      "《盎格鲁-撒克逊编年史》878 条", "《古兰经》48 章", "亚里士多德《雅典政制》20—22章",
+      "《人类环境宣言》26项原则",
+      /* 期刊的「年第N期」是这一类里最常用的一种著录编号：发掘简报、评论文章
+       * 都靠它定位。它和年跨度只差一个「期」字，所以正反两侧必须同时钉在这里。 */
+      "《文物》1975年第11期", "《考古》1979年第5期", "《戏剧报》1978年第7期"];
+    const NUM_NO = ["《申报》1912—1913年原载", "《挑战者号深海探测报告》1880至1895年五十卷",
+      "玛丽·戈德温《弗兰肯斯坦》1818/1831年版及其序", "《人民日报》1952年9月",
+      "《乌托邦》1516年原本", "《基督教要义》1536年初版与1559年定本",
+      "《（民国）政府公报》1942—1943年", "《大伦敦编年史》1497年条",
+      "《文物》1975年", "《考古》第5期"];
+    for (const s of NUM_NO) eq(NRE && NRE.test(s), false,
+      `年跨度/初版年不被算作位置：「${s}」仍应留在仅书名（它只说何时刊行，不说翻到哪一页）`);
+    for (const s of NUM_YES) eq(NRE && NRE.test(s), true,
+      `真编号判为位置：「${s}」读者照着就能查到那一片/那一条，不算就是假装查不到`);
+
+    /* 可定位 ⇔ 至少命中一类：两条判据若各自演化，标签会与它声称的证据脱钩。
+     * 「已核」的条目里 hasLocator 仍为真而 tierOf 已是 verified，等值只在无合式核对
+     * 记录的条目上成立——语料曾长期一条已核也没有，那时全表等值与本案等值是同一句话，
+     * 现在必须写明这一维，否则第一条诚实的核对记录就会把这条用例顶红。 */
+    const noChk = evs.filter((e) => PV.tierOf(e) !== "verified");
+    ok(noChk.length > 4000, `其中无核对记录的条目有 ${noChk.length} 条（少于 4000＝下面的等值判据在一个近乎空的样本上恒真）`);
+    eq(noChk.filter((e) => PV.hasLocator(e) !== (PV.tierOf(e) === "locatable")).length, 0,
        "「有定位证据」与「判为可定位」在无核对记录的条目上完全等值");
 
     /* ---- 转义：标签与说明都要写进 innerHTML ----
@@ -1036,7 +1072,10 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
      * 那样只测出自己的正则太粗。要测的是「危险字符有没有逃过转义」「用户串有没有
      * 混进标签结构」。 */
     const PAY = '"><img src=x onerror=alert(1)>';
-    const dirty = { detail: { sources: [PAY] }, checks: [{ by: PAY, at: "2026-09-20" }] };
+    /* by 现在必须自带位置才算合式，所以脏串挂在位置后面：记录照样走到 explain()，
+     * 转义面没有被新判据绕开——否则这段会退化成只测一条被丢弃的记录。 */
+    const dirty = { detail: { sources: [PAY] },
+      checks: [{ by: "张三（核《资治通鉴》卷二百一十二）" + PAY, at: "2026-09-20" }] };
     const expHtml = PV.explain(dirty);
     eq(/[<>"]/.test(expHtml), false,
        `explain 输出里没有未转义的 < > "（实得 ${expHtml}）：它要进 innerHTML，一个漏字的 &quot; 就是执行别人拼的属性`);
@@ -1062,12 +1101,16 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
 
   const mRe = /const CHECK_DATE_RE\s*=\s*\/(.+)\/;/.exec(VAL_SRC);
   const VAL_DATE_RE = mRe ? new RegExp(mRe[1]) : fail("核对日期正则");
+  /* 署名位置正则带 i 旗标（ISBN/链接那两类不分大小写），所以这里的取样式与
+   * CHECK_DATE_RE 不同：末段是 /i; 而不是 /;。解不出来必须报，不能空转。 */
+  const mLoc = /const CHECK_BY_LOC_RE\s*=\s*\/(.+)\/i;/.exec(VAL_SRC);
+  const VAL_LOC_RE = mLoc ? new RegExp(mLoc[1], "i") : fail("署名位置正则");
   const mEv = /const EV_KEYS\s*=\s*(\[[^\]]*\])/.exec(VAL_SRC);
   const EV_KEYS = mEv ? JSON.parse(mEv[1].replace(/'/g, '"')) : fail("事件合法键清单");
   const mTf = /const TIER_FIELDS\s*=\s*(\[[^\]]*\])/.exec(VAL_SRC);
   const TIER_FIELDS = mTf ? JSON.parse(mTf[1].replace(/'/g, '"')) : fail("等级字段禁令清单");
 
-  if (VAL_DATE_RE && EV_KEYS && TIER_FIELDS) {
+  if (VAL_DATE_RE && VAL_LOC_RE && EV_KEYS && TIER_FIELDS) {
     eq(TIER_FIELDS.length > 0 && EV_KEYS.length > 0, true, "两张清单本身非空（空集会让下面的互斥与包含断言真空通过）");
     eq(EV_KEYS.includes("checks"), true,
        "EV_KEYS 含 checks：不含则合式记录会被 EXTRA_KEY 判成野生字段，投稿通道一进仓就红");
@@ -1079,10 +1122,44 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
     let disagree = [];
     for (const s of DATES) {
       const byVal = VAL_DATE_RE.test(String(s).trim());
-      const byProv = PV.validCheck({ by: "张三", at: s });
+      const byProv = PV.validCheck({ by: "张三（核《资治通鉴》卷二百一十二）", at: s });
       if (byVal !== byProv) disagree.push(`${JSON.stringify(s)}: validate=${byVal} prov=${byProv}`);
     }
     eq(disagree.length, 0, `两端对 ${DATES.length} 个日期串裁决完全一致（分叉：${disagree.join(" ｜ ")}）`);
+
+    /* 署名「有没有写明位置」是第二维，同样两端各一份判据：validate 决定能不能进仓，
+     * prov.js 决定徽章抬不抬得起「已核」。这一维分叉的后果比日期分叉更坏——门放行的
+     * 记录在界面上不计数，读者看到的「可定位」里其实躺着一条已经核过的记录，
+     * 而核对的人永远不知道自己的记录被谁吃掉了。所以逐串对账，不抄文本比对。 */
+    const BYS = [
+      "张三", "核对完毕", "张三（2026年9月1日核过）", "   ", "",
+      "张三（核《资治通鉴》卷二百一十二）", "某某（翻中华书局点校本《史记》卷三九）",
+      "本站·维基文库比对（史记/卷001 三家注版）", "李四（据《史记·项羽本纪》）",
+      "张三（第 112 页）", "张三（pp. 30-45）", "张三：30-45",
+      "张三（https://zh.wikisource.org/wiki/史記/卷001）", "张三（ISBN 7-101-00301-9）",
+      "张三（WWW 国学网）", "张三（卷第一百二十）", "张三（第三十九卷）",
+      /* 著录编号一类：甲骨/金文/古典史籍的定位习惯就是「书名＋编号」，
+       * 而年跨度长得一模一样——正反两侧都要有样本，否则这把尺子量不出边界。 */
+      "张三（《甲骨文合集》6412、6413）", "张三（希罗多德《历史》1.96—1.101）",
+      "张三（亚里士多德《形而上学》983b）", "张三（《盎格鲁-撒克逊编年史》878 条）",
+      "张三（《申报》1912—1913年原载）", "张三（《挑战者号报告》1880至1895年）",
+      "张三（《弗兰肯斯坦》1818/1831年版）", "张三（《人民日报》1952年9月）",
+      /* 「年第N期」与「年」只差一个期字：一侧漏钉，另一端就会把出版年当位置 */
+      "张三（《文物》1975年第11期）", "张三（《考古》1979年第5期）", "张三（《文物》1975年）",
+    ];
+    let locSplit = [];
+    for (const s of BYS) {
+      const byVal = VAL_LOC_RE.test(String(s).trim());
+      const byProv = PV.byHasLocator(s);
+      if (byVal !== byProv) locSplit.push(`${JSON.stringify(s)}: validate=${byVal} prov=${byProv}`);
+    }
+    eq(locSplit.length, 0, `两端对 ${BYS.length} 个署名串「有没有写明位置」裁决完全一致（分叉：${locSplit.join(" ｜ ")}）`);
+    /* 判据不能靠一份全放或全拒的样本表跑绿：两侧都必须有落点。 */
+    const locYes = BYS.filter((s) => PV.byHasLocator(s)).length;
+    eq(locYes > 0 && locYes < BYS.length, true,
+      `BYS 两侧都有落点（放行 ${locYes} 条／拒 ${BYS.length - locYes} 条）：全放或全拒都说明这批样本量不出这把尺子`);
+    eq(PV.CHECK_KINDS.length === PV.KINDS.length - 1 && !PV.CHECK_KINDS.some((k) => k.key === "dated"), true,
+      `署名尺子确实剔掉了「日期」这一类（实留 ${PV.CHECK_KINDS.map((k) => k.key).join(",")}）：留着它，「某某（2026年9月1日核过）」就能冒充有位置`);
     /* 日期之外还有一维：by 非空。validate 侧由 test-gates 的「残缺记录（缺 by）」变异证明，
      * 这里补齐前端一侧——否则门放行而 prov 不计数，正是本段要防的那种错。 */
     eq(PV.validCheck({ at: "2026-09-01" }), false, "prov 侧同样不认缺 by 的记录（谁核的留白 = 无人可追问）");
@@ -1104,8 +1181,10 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
  * 本仓已经吃过一次（manifest 门从不读 manifest）。所以逐面点名。 */
 {
   const PV = window.ChronProv;
-  const cssAll = ["base", "layout", "components", "river"]
-    .map((f) => fs.readFileSync(path.join(ROOT, "css", f + ".css"), "utf8")).join("\n");
+  /* css 清单从磁盘现取：写死的那份会在下一个人加样式文件时静默漏掉整层——
+   * atlas.css 就长期不在这份名单里，看点抽屉与地点页的字色从没被这把尺子量过。 */
+  const cssAll = fs.readdirSync(path.join(ROOT, "css")).filter((f) => f.endsWith(".css"))
+    .map((f) => fs.readFileSync(path.join(ROOT, "css", f), "utf8")).join("\n");
   const readJs = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 
@@ -1121,7 +1200,7 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
   const SITES = [
     ["js/detail.js", "renderEvent", "详情抽屉头部标签", false],
     ["js/detail.js", "renderEvent", "详情溯源块的解释行", true],
-    ["js/detail.js", "rowFor", "相关条目 / 同年对照 / 年份档案行", false],
+    ["js/detail.js", "rowFor", "相关条目 / 同年对照 / 年份档案行 / 此后三格", false],
     ["js/detail.js", "contextBlock", "±5 年上下文行", false],
     ["js/popover.js", "eventRow", "悬停气泡行", false],
     ["js/compare.js", "list", "同年中西对照卡行", false],
@@ -1220,6 +1299,146 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
     }
   }
 
+  /* 「此后」钩子（三年后 / 三十年后 / 这些人后来）——候选全由年序与人物名现算，
+   * 不读 related（跨轨 related 只占 2.8%，靠它等于大多数条目这一格永远空着）。
+   * 这一格算错不会报错：会把 1904 说成「三年后」、把别的轨塞进「中国的后续」、
+   * 或者反过来把窗口里明明有的条目说成「没有」。所以这里实跑 ChronDetail，不读源码。 */
+  {
+    const fx = (id, track, year, dim, weight, figs, extra) =>
+      Object.assign({ id, track, year, yearApprox: false, dim, weight, title: "夹具·" + id,
+        summary: "用于「此后」钩子", detail: { figures: figs || [], sources: ["《某史》"] }, related: [] }, extra || {});
+    const EVENTS = [
+      fx("b", "cn", 1900, "politics", 5, ["甲", "乙"]),
+      fx("t1", "cn", 1901, "war", 4),
+      fx("t2b", "cn", 1902, "politics", 5),
+      fx("t2a", "cn", 1902, "politics", 3),
+      fx("t3", "cn", 1903, "politics", 4),          // 1900+3：上界必须含
+      fx("x4", "cn", 1904, "politics", 3, ["丁"]),   // 1900+4：三年格不含；三十年格里它最近，被远端挤掉
+      fx("n06", "cn", 1906, "politics", 5, ["戊"]),   // 同维且权重最高：若按「先近后远」它必进三十年格
+      fx("y25", "cn", 1925, "politics", 2),
+      fx("a26", "cn", 1926, "art", 5, ["乙"]),       // 异维→不进三十年格；同人→进同人格
+      fx("z31", "cn", 1931, "politics", 5),          // 1900+31：30 年上界之外
+      fx("w01", "world", 1901, "politics", 4, ["甲"]), // 跨轨：三年格不收，同人格收
+      fx("hid", "cn", 1902, "politics", 4, [], { __hidden: true }),
+      fx("lonely", "cn", 1850, "science", 4, ["孤"]),   // 之后 30 年内同轨一条没有
+      fx("far", "cn", 1999, "science", 4, ["甲"]),       // lonely 的「后续」，但相距 149 年
+    ];
+    const meta = {
+      tracks: { cn: { short: "中", label: "中国", color: "#c00" }, world: { short: "西", label: "世界", color: "#08c" } },
+      dimensions: { politics: { label: "政治", color: "#999" }, war: { label: "战争", color: "#a63" },
+        art: { label: "文艺", color: "#6a9" }, science: { label: "科学", color: "#69a" } },
+      dimOrder: ["politics", "war", "art", "science"], yearMin: -3000, yearMax: 2100,
+    };
+    const doc = { createElement: () => ({ style: {}, classList: { add() {}, remove() {}, toggle() {} }, appendChild() {}, addEventListener() {} }),
+      getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
+      body: { appendChild() {} }, documentElement: { style: {}, setAttribute() {} }, addEventListener() {} };
+    function makeDetailEnv(st) {
+      const win = {
+        addEventListener() {}, removeEventListener() {}, dispatchEvent() {},
+        ChronLoader: {
+          eventsIn: (from, to) => EVENTS.filter((e) => e.year >= from && e.year <= to),
+          allEventsAtYear: (y) => EVENTS.filter((e) => e.year === y),
+          eventsAtYear: (t, y) => EVENTS.filter((e) => e.track === t && e.year === y),
+          eventById: (id) => EVENTS.find((e) => e.id === id) || null,
+          allEvents: () => EVENTS,
+          stats: () => st || { total: EVENTS.length, loadedChunks: 9, totalChunks: 9 },
+        },
+        ChronTime: { formatYear: (y, o) => (o && o.approx ? "约" : "") + y, formatCentury: () => "XX 世纪" },
+        ChronState: { get: () => ({ provFloor: 0 }), passesFilter: (e) => !e.__hidden, patch() {}, subscribe() {}, filterChanged: () => false },
+        __CHRONICLE_META: meta,
+        ChronProv: { badge: () => '<i class="pv">b</i>', tierOf: () => "titled", rankOf: () => 1, explain: () => "" },
+      };
+      win.window = win;
+      new Function("window", "document", "setTimeout", "CustomEvent", readJs("js/detail.js"))(
+        win, doc, () => 0, function (t, o) { Object.assign(this, o || {}); this.type = t; });
+      return win.ChronDetail;
+    }
+    const CD = makeDetailEnv(null);
+    const ids = (list) => list.map((e) => e.id).join(",");
+    const base = EVENTS.find((e) => e.id === "b");
+
+    ok(CD && typeof CD.ahead === "function" && typeof CD.laterPick === "function",
+       "detail.js 导出了 ahead/laterPick（导不到=下面每一条都在空转）");
+    eq(ids(CD.ahead(base, 1, 3, {})), "t1,t2b,t2a,t3",
+       "三年窗按年序排、同年按权重降序，且 1900+3 这条在界内（写死 1–2 就漏掉整整一年）");
+    eq(CD.ahead(base, 1, 3, {}).some((e) => e.id === "x4"), false,
+       "1904 不算「三年后」（上界多放一年，钩子就开始说假话）");
+    eq(CD.ahead(base, 0, 3, {}).some((e) => e.id === "b"), false,
+       "lo=0 时本条自己被排除（把自己列进「此后」=告诉读者它还没发生）");
+    eq(CD.ahead(base, 1, 3, {}).some((e) => e.track === "world"), false,
+       "三年格不跨轨（把世界轨的事说成这条中国事的「三年后」=轨被抹平）");
+    eq(ids(CD.ahead(base, 4, 30, { sameDim: true })), "x4,n06,y25",
+       "三十年格只收同一维度、默认按年序排，且 1900+30 是上界（1931 那条再像后续也不收）");
+    eq(ids(CD.ahead(base, 4, 30, { sameDim: true, farFirst: true })), "y25,n06,x4",
+       "farFirst 把同一批候选倒过来排（不改变窗口成员，只改变谁先占名额）");
+    eq(CD.ahead(base, 1, 30, {}).some((e) => e.id === "hid"), false,
+       "被溯源门槛筛掉的条目不进「此后」（门槛是活的筛选，钩子不能从侧面绕过去）");
+    eq(CD.ahead(base, 1, 30, { exclude: { t1: 1, t2b: 1 } }).some((e) => e.id === "t1"), false,
+       "exclude 名单生效（同一条在三年格和三十年格各出现一次=一条变两条的假账）");
+
+    const pick = CD.laterPick(base);
+    eq([CD.LATER_WINDOWS.three, CD.LATER_WINDOWS.thirty, CD.LATER_WINDOWS.people]
+         .map((w) => w.join("–")).join(" / "),
+       "1–3 / 4–30 / 1–30",
+       "三格的时间窗（年差、含两端）——这三个数在测试里另写一份，独立核对 detail.js 那张表：" +
+       "名额只有两三个，把上界偷偷放宽常常挤不进结果、行为测试照旧全绿，所以必须直接对表");
+    eq(ids(pick.three), "t1,t2b,t2a", "「三年后」格取满 3 条即止，t3 由第 4 条让位（无限列下去就不是钩子是清单）");
+    eq(ids(pick.thirty), "n06,y25",
+       "「三十年后」的两个名额从窗口远端收下（同维、不与三年格重复），再按年序摆给读者");
+    eq(pick.thirty.some((e) => e.id === "x4"), false,
+       "距本条 4 年的那条不进「三十年后」（它权重最高、年份最近，按「先近后远」一定挤掉别人——挂在「三十年后」底下就是标题在说假话）");
+    eq(pick.thirty.some((e) => e.dim !== base.dim), false,
+       "三十年格只收同一维度（调用处放开维度，1926 那条文艺的事就会冒充本条政治事的后续——而它离本条正好 26 年，年差挑不出毛病）");
+    eq(pick.people.some((e) => e.id === "n06"), false,
+       "n06 的人物名与本条不相交，同人格不能因为它是 leftover 就顺手收进来");
+    eq(ids(pick.people), "w01,a26", "同人格按人物名相交，跨轨也算（甲在 1901 的世界轨条目里，乙在 1926 的文艺条目里）");
+    eq(pick.three.length + pick.thirty.length + pick.people.length,
+       new Set([...pick.three, ...pick.thirty, ...pick.people].map((e) => e.id)).size,
+       "三格之间零重复（重复即读者看见同一条事挂着两个不同的年差）");
+    ok(pick.three.length > 0 && base.related.length === 0,
+       "本条 related 为空却仍有「此后」——候选确实不依赖 related 边");
+
+    const lonely = EVENTS.find((e) => e.id === "lonely");
+    const lp = CD.laterPick(lonely);
+    eq([lp.three.length, lp.thirty.length, lp.people.length].join(","), "0,0,0",
+       "30 年窗口里没有候选时三格全空（1999 年那条相距 149 年，不能拿来充当「三十年后」）");
+    eq(CD.laterBlock(lonely), "",
+       "全空时整格不出——硬凑一条远的来充数，比不出现更糟：它把机制说成了装饰");
+
+    const html = CD.laterBlock(base);
+    ok(/三年后 · 同轨紧接着/.test(html) && /三十年后 · 同轨同维/.test(html) && /这些人后来/.test(html),
+       "三格的标题都在（少一格就是某类候选永远看不见）");
+    ok(/data-ev="t1"/.test(html) && /data-ev="w01"/.test(html),
+       "钩子行带 data-ev（点了打不开=它只是排在那里的字）");
+    ok(/\b1901\b/.test(html) && /\b1925\b/.test(html),
+       "行内给出实年：读者能自己验年差，界面不把「三年」的承诺藏在标题里");
+    ok(/邻近，不是因果/.test(html),
+       "文末写明排的是时间不是因果（邻近摆成链条，读者就会读成因果）");
+    const partial = makeDetailEnv({ total: EVENTS.length, loadedChunks: 3, totalChunks: 9 }).laterBlock(base);
+    ok(/全库分片只载入 3\/9/.test(partial),
+       "分片没载全时照实报载入比例（这时候「窗口里没有」可能是「还没载入」）");
+    ok(!/全库分片只载入/.test(html), "全载完时不提这句（提了就是把没发生的事挂在页面上）");
+
+    /* 上面全部是「直接调函数」的实跑，所以它们对「函数写好了但没人调用」是盲的：
+     * 摘掉 renderEvent 里那一行，21 条照样全绿。这一条专门盯接线（注释先剥掉，
+     * 免得注释里提一句「此后」就冒充成调用）。 */
+    const dNoCmt = readJs("js/detail.js").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+    const reBody = dNoCmt.slice(dNoCmt.indexOf("function renderEvent"), dNoCmt.indexOf("function rowFor"));
+    ok(reBody.length > 200, "renderEvent 片段切得出来（切不出=下面这条在空转）");
+    ok(/html \+= laterBlock\(ev\);/.test(reBody),
+       "renderEvent 真的把「此后」拼进详情（只导出而不调用=单测全绿、读者却永远看不见这一格）");
+    ok(/\.detail \.d-hint/.test(fs.readFileSync(path.join(ROOT, "css/components.css"), "utf8")),
+       "口径说明有样式（.d-hint 没定义时那句「不是因果」会跟着 .para p 走成正文字号，读起来像正文的一部分）");
+
+    /* 年份的第二份抄本：调用处或口径句里再写死一遍 1–3/4–30，改表时行为跟着表走、
+     * 页面还念旧数（两边各自都对得上自己那份），读者按标题验年差才发现被骗。
+     * 这是「写了但没接上」的另一面：接上了，但接的是另一份数字。 */
+    ok(!/ahead\(ev, \d/.test(dNoCmt),
+       "laterPick 三处窗口全从 LATER_WINDOWS 取，调用处不写死年份（写死就有两份，改表只改其中一份）");
+    ok(!/取本条之后 \d|取 \d+–\d+ 年/.test(dNoCmt),
+       "口径句里的年份也从表里取（句子里抄一份「1–3」，表改成别的就变成页面当着读者报旧数）");
+  }
+
   /* 四档字色是「这条查得查不到」的唯一视觉通道；10px 小字淡到读不出，
    * 整个溯源层就静默失效（本轮实测：墨底「仅书名」3.74、「无出处」3.40，
    * 宣纸底「已核」金箔 2.22——最该权威的那枚最看不清）。
@@ -1315,7 +1534,7 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
    * 宣纸底上只剩 1.9:1」。同一把尺子必须反过来盯着新写的这批，否则新界面就是下一批读不出的字。
    * 判据一律从 base.css 现算，不抄实测数字：换色即换结论。 */
   {
-    const TEXT_TOKENS = ["--link", "--warn", "--gold-text"];
+    const TEXT_TOKENS = ["--link", "--warn", "--gold-text", "--ink-soft"];
     const rules = [];
     for (const m of cssNoCmt.matchAll(/[^{}]*\{[^}]*\}/g)) {
       const brace = m[0].indexOf("{");
@@ -1324,18 +1543,28 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
       const colors = [...body.matchAll(/(?:^|[;{])\s*color:\s*var\((--[\w-]+)\)/g)].map((c) => c[1]);
       if (!colors.length) continue;
       if (!(sel.includes(".contrib") || /\.cf\b/.test(sel) || sel.includes(".ep-we") ||
-            sel.includes(".beian") ||
+            sel.includes(".beian") || sel.includes(".d-hint") ||
             colors.some((c) => TEXT_TOKENS.includes(c)))) continue;
       rules.push([sel, colors]);
     }
     ok(rules.length >= 8,
        `投稿界面的字色规则扫得到 ${rules.length} 条（少于 8 条=选择器切片失效，下面全在空转）`);
     ok(rules.some(([s]) => s.includes(".ep-we")),
-       "开场题记收束行 .ep-we 也在这份字色清单里（漏出清单=给它换任何字色都不会让本门变红）");
+       "开场题记收束行 .ep-we 也在这份字色清单里（漏出清单=给它换任何字色都不会让本门变红）。" +
+       /* 与 .beian 同：它当下走 --ink-soft，而 --ink-soft 已在 TEXT_TOKENS 里，所以选择器条件
+        * 是第二重保护——日后它换成清单外的令牌时靠这一条兜住。对应的 meta 用例因此改打
+        * 「字色写成死值」这个真实形态（脱令牌即从 color: var(...) 的扫描里静默脱落）。 */
+       "");
     ok(rules.some(([s]) => s.includes(".beian")),
        "备案号链接 .beian 也在这份字色清单里（漏出清单=日后把它换成任何字色都不会让本门变红）。" +
        /* 双重保护：它当下走 --link，而 --link 本身在 TEXT_TOKENS 里——只删上面那个选择器条件不会
         * 变红。所以 test-gates-meta 里对应的用例打在「css 删掉 color 声明」这个真实缺陷形态上。 */
+       "");
+    ok(rules.some(([s]) => s.includes(".d-hint")),
+       "详情「此后」的口径说明 .d-hint 也在这份字色清单里（漏出清单=日后把它换成 --ink-faint 这类淡色不会让本门变红）。" +
+       /* 同上双重保护：它当下走 --ink-soft，而 --ink-soft 本身在 TEXT_TOKENS 里，所以只删
+        * 上面那个选择器条件不会变红——真正盯的是「换成清单外的淡色」这个缺陷形态，
+        * 由 test-gates-meta 里对应哨兵打中。 */
        "");
     for (const theme of ["dark", "light"]) {
       const T = blockTokens(`html\\[data-theme="${theme}"\\]`);
@@ -1578,8 +1807,9 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
   const noCmt = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
   const src = noCmt(fs.readFileSync(path.join(ROOT, "js/contribute.js"), "utf8"));
   const indexHtml = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  const cssAll2 = ["base", "layout", "components", "river"]
-    .map((f) => fs.readFileSync(path.join(ROOT, "css", f + ".css"), "utf8")).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
+  /* 同上：字色与层级的扫描域按磁盘现取，新增 css 文件不会落在监视之外。 */
+  const cssAll2 = fs.readdirSync(path.join(ROOT, "css")).filter((f) => f.endsWith(".css"))
+    .map((f) => fs.readFileSync(path.join(ROOT, "css", f), "utf8")).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
 
   /* ---------- 模块接线：孤儿文件等于功能不存在 ---------- */
   {
@@ -1590,6 +1820,176 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
     eq(refs.length > 0, true, `index.html 的 script 引用解析得到（实得 ${refs.length} 条：解析不到 = 这条门空转）`);
     const missing = refs.filter((r) => !fs.existsSync(path.join(ROOT, r)));
     eq(missing.join(","), "", `每条 script src 都指向真实文件（${missing.join(",")} 会在 file:// 下静默 404）`);
+
+    /* css 同一条门：上面几处把扫描域改成「磁盘现取」之后，一个没被 index.html 链接的
+     * css 文件会被量到对比度、却在页面上根本不生效——绿灯与可见是两件事。 */
+    const cssFiles = fs.readdirSync(path.join(ROOT, "css")).filter((f) => f.endsWith(".css")).sort();
+    const orphanCss = cssFiles.filter((f) => !indexHtml.includes('href="css/' + f + '"'));
+    eq(orphanCss.join(","), "", `css/ 下每个样式表都被 index.html 链接（${orphanCss.join(",")} 是孤儿：写好了没上线）`);
+    const cssRefs = [...indexHtml.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map((m) => m[1]);
+    eq(cssRefs.length > 0, true, `index.html 的 stylesheet 引用解析得到（实得 ${cssRefs.length} 条：解析不到 = 这条门空转）`);
+    const cssGone = cssRefs.filter((r) => !fs.existsSync(path.join(ROOT, r)));
+    eq(cssGone.join(","), "", `每条 stylesheet href 都指向真实文件（${cssGone.join(",")} 会让整层没有样式）`);
+  }
+
+  /* ---------- 收起的层必须真的收起（[hidden] 与 display 的权重账） ---------- */
+  /* 浏览器 UA 样式表里有 [hidden]{display:none}，但它是「作者样式之外的最低一档」：
+   * 只要本层有一条 .某层 { display:flex } 与之同权重（一个类 = 一个属性选择器），
+   * 作者那条就赢，于是 JS 把 hidden 翻成 true 之后，面板照样画在屏幕上、照样吃点击。
+   * 这类缺陷在代码评审里看不见（JS 写对了），只有量 computed style 才露出来，
+   * 所以这里用同一份账静态复算一遍：js 里被 .hidden= 切换的层 ∩ css 里带非 none
+   * display 的层 ⊆ 带 [hidden]{display:none} 兜底的层。 */
+  {
+    const jsFiles = fs.readdirSync(path.join(ROOT, "js")).filter((f) => f.endsWith(".js")).sort();
+    const toggled = new Map(); // class -> 哪个模块用它切 hidden
+    for (const f of jsFiles) {
+      const s = noCmt(fs.readFileSync(path.join(ROOT, "js", f), "utf8"));
+      // 面板都靠 element.className = "某层" 立起来；先建 变量→类 的账，再找谁被 hidden 切换
+      const varCls = new Map();
+      for (const m of s.matchAll(/(?:^|[^\w.])(\w+)\.className\s*=\s*"([^"]+)"/g)) {
+        if (!varCls.has(m[1])) varCls.set(m[1], new Set());
+        for (const c of m[2].trim().split(/\s+/)) varCls.get(m[1]).add(c);
+      }
+      for (const m of s.matchAll(/(?:^|[^\w.])(\w+)\.hidden\s*=/g))
+        for (const c of (varCls.get(m[1]) || [])) if (!toggled.has(c)) toggled.set(c, f);
+    }
+    const seen = [...toggled.keys()].sort();
+    ok(seen.length >= 8,
+      `解析得到 ${seen.length} 个靠 hidden 收起的层（太少=变量名换了、这条门空转：${seen.join(",")}）`);
+
+    const declsOf = new Map(); // 选择器 -> display 值
+    const hiddenGuarded = new Set();
+    for (const m of cssAll2.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+      const d = /(?:^|;)\s*display\s*:\s*([a-z-]+)/.exec(m[2]);
+      for (const sel of m[1].split(",").map((x) => x.trim())) {
+        const base = /^\.([A-Za-z][\w-]*)$/.exec(sel);
+        if (base && d && d[1] !== "none") declsOf.set(base[1], d[1]);
+        const g = /^\.([A-Za-z][\w-]*)\[hidden\]$/.exec(sel);
+        if (g && d && d[1] === "none") hiddenGuarded.add(g[1]);
+      }
+    }
+    const painted = seen.filter((c) => declsOf.get(c) && declsOf.get(c) !== "none");
+    ok(painted.length >= 6,
+      `其中 ${painted.length} 个层自带非 none 的 display（这是本门的真正射程：${painted.join(",")}）`);
+    const exposed = painted.filter((c) => !hiddenGuarded.has(c));
+    eq(exposed.join(","), "",
+      `每个「用 hidden 收起、自己又声明了 display」的层都有 [hidden]{display:none} 兜底` +
+      `（${exposed.map((c) => "." + c + "{" + declsOf.get(c) + "}").join(" ")} 关掉后仍会盖住整页并拦截点击）`);
+    /* 反向也要成立：写了兜底却没人用 hidden 切它，说明账对不上（改名或误加） */
+    const staleGuard = [...hiddenGuarded].filter((c) => !toggled.has(c)).sort();
+    eq(staleGuard.join(","), "", `每条 [hidden] 兜底都对应一个真用 hidden 切换的层（${staleGuard.join(",")} 是空写的账）`);
+  }
+
+  /* ---------- 数据在路上时按下的「关」不能丢（迟到 open 把面板掀回来） ---------- */
+  /* 这类层先 return 一个 Promise 再在 .then 里 hidden=false：加载期间用户按 Esc、
+   * 点别的层或走路由，那些 close() 都会因为「面板还藏着」而直接 return，
+   * 于是晚一步到货的 open 把面板画在读者已经离开的页面上——上面那条 [hidden] 门
+   * 反而让它更明显（现在整层是 flex 全屏）。判据：每个 .then 块里 hidden=false
+   * 之前必须先问一次「用户还要不要它开着」。 */
+  {
+    const thenBodies = (s) => {
+      const out = [];
+      const re = /\.then\(\s*function[^{]*\{/g;
+      let m;
+      while ((m = re.exec(s))) {
+        let i = m.index + m[0].length, depth = 1;
+        while (i < s.length && depth > 0) {
+          if (s[i] === "{") depth++;
+          else if (s[i] === "}") depth--;
+          i++;
+        }
+        out.push(s.slice(m.index + m[0].length, i - 1));
+      }
+      return out;
+    };
+    const asyncLayers = [];
+    const jsAll = fs.readdirSync(path.join(ROOT, "js")).filter((f) => f.endsWith(".js")).sort();
+    for (const f of jsAll) {
+      const s = noCmt(fs.readFileSync(path.join(ROOT, "js", f), "utf8"));
+      for (const b of thenBodies(s)) {
+        if (!/\.hidden\s*=\s*false/.test(b)) continue;
+        asyncLayers.push({ file: f, bail: /if\s*\(\s*!\s*wantOpen\s*\)\s*return/.test(b) });
+      }
+    }
+    ok(asyncLayers.length >= 3,
+      `解析到 ${asyncLayers.length} 个「异步到货才显形」的面板（少于 3 个 = 扫描域退化了，这条门空转）`);
+    const unprotected = asyncLayers.filter((a) => !a.bail).map((a) => a.file);
+    eq(unprotected.join(","), "",
+      `每个异步打开的面板都在 hidden=false 前问过「用户还要不要它开着」` +
+      `（${unprotected.join(",") || "无"} 的 close() 在加载期是空转的：关掉的东西会自己弹回来）`);
+    const flagFiles = [...new Set(asyncLayers.map((a) => a.file))];
+    /* 声明行 `var wantOpen = false;` 不算「把旗放下」：只置真不清真的旗，
+     * 初值反而是这条门最容易误以为通过的地方。 */
+    const noClear = flagFiles.filter((f) => {
+      const s = noCmt(fs.readFileSync(path.join(ROOT, "js", f), "utf8"))
+        .replace(/\bvar\s+wantOpen\s*=\s*false\s*;/g, "");
+      return !/wantOpen\s*=\s*false/.test(s);
+    });
+    eq(noClear.join(","), "",
+      `每个用了 wantOpen 的文件都有一处把它清成 false（只置真不清真的旗等于永远开着：${noClear.join(",")}）`);
+  }
+
+  /* ---------- 关掉一层，地址栏也得跟着离开（hash 与可见层的配对账） ---------- */
+  /* 每条 #/xxx 都能把对应那层叫出来，所以「层收了、地址还写着它」一定会在刷新时
+   * 兑现成「关不掉的层」。名单不抄文档：路由名从 router.js 的 parse() 现取，
+   * 每条路由叫了哪个模块顺着 apply() 的分支现取，模块落在哪个文件按
+   * window.Chron* = 现取——router 加一条路由，本门自动多扫一层，文档不用跟着改。 */
+  {
+    const braceBody = (s, openIdx) => {
+      let i = openIdx, depth = 0;
+      const start = openIdx + 1;
+      for (; i < s.length; i++) {
+        if (s[i] === "{") depth++;
+        else if (s[i] === "}") { depth--; if (!depth) break; }
+      }
+      return s.slice(start, i);
+    };
+    const routerSrc = noCmt(fs.readFileSync(path.join(ROOT, "js/router.js"), "utf8"));
+    const routeNames = [...new Set([...routerSrc.matchAll(/return\s*\{\s*name:\s*"([a-z]+)"/g)].map((m) => m[1]))];
+    ok(routeNames.length >= 6,
+      `parse() 里现取到 ${routeNames.length} 个路由名（少于 6 = 扫描域退化：${routeNames.join(",")}）`);
+
+    const owner = new Map(); // ChronXxx -> js 文件
+    const jsHash = fs.readdirSync(path.join(ROOT, "js")).filter((f) => f.endsWith(".js")).sort();
+    for (const f of jsHash)
+      for (const m of noCmt(fs.readFileSync(path.join(ROOT, "js", f), "utf8")).matchAll(/window\.(Chron[A-Z][A-Za-z]*)\s*=/g))
+        if (!owner.has(m[1])) owner.set(m[1], "js/" + f);
+    ok(owner.size >= 20, `解析到 ${owner.size} 个 window.Chron* 模块（少于 20 = 名单取空了，这条门空转）`);
+
+    /* 路由 → 这一条叫开的层。分支里只读 .close() 的模块不算被这条路由打开。 */
+    const openedByRoute = new Map();
+    for (const name of routeNames) {
+      const at = routerSrc.indexOf('r.name === "' + name + '"');
+      if (at < 0) continue;
+      const body = braceBody(routerSrc, routerSrc.indexOf("{", at));
+      const mods = [...new Set([...body.matchAll(/\b(Chron[A-Z][A-Za-z]*)\.([A-Za-z]\w*)/g)]
+        .filter((m) => m[2] !== "close")
+        .map((m) => owner.get(m[1]) || "路由叫了不在任何文件里的模块：" + m[1]))];
+      openedByRoute.set(name, mods);
+    }
+    const missingOwner = [...openedByRoute.values()].flat().filter((f) => !f.startsWith("js/"));
+    eq(missingOwner.join(","), "", `apply() 里点名的模块都能按 window.Chron* 归到文件（${missingOwner.join(",") || "无"}）`);
+
+    /* 只审「有 close()、且 close() 真的在收一块面板」的层；时间轴那种没有 close 的跳过 */
+    const checked = [];
+    for (const [name, files] of [...openedByRoute].sort()) {
+      for (const f of files) {
+        if (!f.endsWith(".js")) continue; // 归不到文件的已由上面那条 eq 点名
+        const s = noCmt(fs.readFileSync(path.join(ROOT, f), "utf8"));
+        const at = s.indexOf("function close(");
+        if (at < 0) continue;
+        const body = braceBody(s, s.indexOf("{", at));
+        if (!/\.hidden\s*=\s*true|classList\.remove\("open"\)/.test(body)) continue;
+        if (checked.some((c) => c.file === f)) continue;
+        checked.push({ file: f, route: name, resets: /resetHash\(|location\.hash\s*=|history\.replaceState/.test(body) });
+      }
+    }
+    ok(checked.length >= 5,
+      `审到 ${checked.length} 层「路由能叫开、close() 又真的在收面板」（少于 5 = 判据空转：${checked.map((c) => c.file).join(",")}）`);
+    const loose = checked.filter((c) => !c.resets);
+    eq(loose.map((c) => c.file + "(#/" + c.route + ")").join(","), "",
+      `每条路由叫开的那一层，close() 都把地址也收掉（${loose.map((c) => c.file + " 的 #/" + c.route).join(",") || "无"}：` +
+      `关了刷新就自己弹回来，读者只当刚才没关掉）`);
   }
 
   /* ---------- 三入口各有活人落点，且落点只说得出 KINDS 里的类型 ---------- */
@@ -1947,6 +2347,84 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
     ok(/name="fax"/.test(src), "表单里确实画了蜜罐字段（判据不能对着一张不存在的表单讲规则）");
     ok(/openForm[\s\S]{0,900}name="fax"[\s\S]{0,80}\.value = ""/.test(src),
        "每次 openForm 都重置蜜罐：留着上一次的脏值会把此后每条正常投稿静默吞掉");
+  }
+}
+
+/* ============ CI 与本地发布面的门清单 1:1（#54） ============
+ * CI 是贡献者 PR 的第一道闸。它比本地少跑一道门，缺陷就在评论里判绿、在维护者机器上判红；
+ * 而那道门是哪一天被顺手删掉的，没有人会知道。所以两边的清单当同一件事核对。 */
+{
+  const yml = (() => { try { return fs.readFileSync(path.join(ROOT, ".github/workflows/gates.yml"), "utf8"); } catch { return ""; } })();
+  const pre = fs.readFileSync(path.join(ROOT, "tools/predeploy.mjs"), "utf8");
+  ok(yml.length > 200, `CI 工作流读得到（长度 ${yml.length}：读空了下面的断言全在空清单上恒真）`);
+
+  const ciNames = (s) => [...s.matchAll(/node\s+tools\/([a-z0-9_-]+)\.mjs/g)].map((m) => m[1]);
+  const declared = (s) => {
+    const m = /const GATES = \[([^\]]*)\]/.exec(s);
+    return m ? [...m[1].matchAll(/"([a-z0-9_-]+)"/g)].map((x) => x[1]) : null;
+  };
+  /* 差集判据本身先自审：两侧同时为空时 A⊆B 恒真，那是最典型的假绿。 */
+  {
+    const dead = [];
+    if (declared('const GATES = ["a", "b"];').join() !== "a,b") dead.push("声明侧取不到清单");
+    if (declared("nothing") !== null) dead.push("声明缺失时没有报 null（空清单会被当成「无缺口」放行）");
+    if (ciNames("run: node tools/x.mjs").join() !== "x") dead.push("执行侧取不到 node tools/*.mjs");
+    if (ciNames("steps:").length) dead.push("执行侧把无关文本误当成命令");
+    ok(dead.length === 0, `门清单两侧解析自审：声明/执行/缺失三种形态都判对${dead.length ? "（" + dead.join("；") + "）" : ""}`);
+  }
+
+  const ci = ciNames(yml), gates = declared(pre);
+  const stagingMatch = /const STAGING_GATES = \[([^\]]*)\]/.exec(pre);
+  const staging = stagingMatch ? [...stagingMatch[1].matchAll(/"([a-z0-9_-]+)"/g)].map((m) => m[1]) : null;
+  eq(!!gates && gates.length > 0, true, `predeploy 的 GATES 取得到（实得 ${JSON.stringify(gates)}）`);
+  eq(ci.length > 0, true, `CI 里的门解析得到 ${ci.length} 处（0 处＝这个对账是空对账）`);
+
+  const missing = (gates || []).filter((g) => !ci.includes(g));
+  eq(missing.join(), "", `本地发布面跑的 ${gates && gates.length} 道门在 CI 里一处不少（缺 ${missing.join()}：那类缺陷 PR 上判绿、合进来才红）`);
+
+  const ghost = [...new Set(ci)].filter((n) => !fs.existsSync(path.join(ROOT, "tools", n + ".mjs")));
+  eq(ghost.join(), "", `CI 点名的每个脚本都在盘上（${ghost.join()} 不存在：CI 会在别人机器上报一门看不懂的红灯）`);
+
+  eq(!!staging, true, `predeploy 的 STAGING_GATES 取得到（实得 ${JSON.stringify(staging)}）`);
+  const outsideStaging = (staging || []).filter((g) => !(gates || []).includes(g));
+  eq(outsideStaging.join(), "", `staging 那道子集（${staging && staging.length} 门）不越出全量清单`);
+
+  /* 反方向：盘上有门、清单里没有 ⇒ 它从不运行，而写它的人以为它在。
+   * 本轮加 validate-story / test-story 时正是这条最容易被漏（改三个文档、少改一行 GATES）。 */
+  {
+    const gateNames = (s) => {
+      const m = /const GATES = \[([^\]]*)\]/.exec(s);
+      return m ? [...m[1].matchAll(/"([a-z0-9_-]+)"/g)].map((x) => x[1]) : [];
+    };
+    /* 假绿控制：拿一个必然不在清单里的名字问它抓不抓得到。抓不到就说明下面的
+     * 「未登记＝零」只是清单恰好为空，而不是这条判据在起作用。 */
+    const ctrl = gateNames('const GATES = ["a", "b"];').concat("__probe_never_registered__")
+      .filter((g) => !["a", "b"].includes(g));
+    if (ctrl.join() !== "__probe_never_registered__") {
+      ok(false, `登记判据取样失效（实得 ${JSON.stringify(ctrl)}）：下面的「全部已登记」不可信`);
+    } else {
+      const onDisk = fs.readdirSync(path.join(ROOT, "tools"))
+        .filter((f) => /^(validate|test)-[a-z0-9-]+\.mjs$/.test(f))
+        .map((f) => f.replace(/\.mjs$/, ""));
+      const unreg = onDisk.filter((g) => !gates.includes(g));
+      eq(unreg.join(), "", `tools/ 下每道 validate-*/test-* 门都已登记（盘上 ${onDisk.length} 道，清单 ${gates.length} 道）`);
+    }
+  }
+
+  /* 这份工作的立身之本是「不带凭据、不做部署」，以及「它真的会跑」。
+   * 两条都写成可自审的判据：判据先拿合成正/负例验一遍，否则「没有凭据」只是空话。 */
+  const CRED_RE = /secrets\.|environment:|uses:[^\n]*(deploy|publish)/i;
+  const TRIG_RE = /^on:\s*\n(?:[^\n]*\n){0,4}\s*push:[\s\S]{0,120}?branches:[^\n]*main/m;
+  {
+    const POS = ["        run: echo ${{ secrets.TOKEN }}", "    environment: production",
+      "      - uses: some-org/deploy-action@v1"];
+    const dead = POS.filter((s) => !CRED_RE.test(s));
+    if (dead.length) ok(false, `凭据判据漏网：${dead.join(" | ")}（下面那条「CI 无凭据」不可信）`);
+    else ok(!CRED_RE.test(yml), "CI 里没有 secrets/environment/部署动作（一旦凭据进工作流，绿色检查就等于已上线）");
+    const tdead = [yml, "on:\n  push:\n    branches: [main]\n  pull_request: null"]
+      .filter((s) => !TRIG_RE.test(s));
+    if (tdead.length > 1) ok(false, `触发判据连合成样例都抓不到（${JSON.stringify(tdead[0].slice(0, 40))}）：下面那条「会跑」不可信`);
+    else ok(TRIG_RE.test(yml), "CI 在 main 与 PR 上触发（否则它是装饰，从不跑）");
   }
 }
 

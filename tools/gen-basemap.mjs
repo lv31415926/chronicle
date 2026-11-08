@@ -172,7 +172,7 @@ window.__CHRONICLE_BASEMAP = {
   licenses: [
     { what: "陆地轮廓", src: "Natural Earth 1:110m land", license: "Public Domain", note: "U.S. government work，无版权" },
     { what: "打包格式", src: "world-atlas v2 (TopoJSON)", license: "ISC", note: "仅构建期使用，运行时零依赖" },
-    { what: "水系与湖泊", src: "作者自绘示意", license: "CC BY 4.0", note: "非测绘成果，不作边界依据" }
+    { what: "水系与湖泊", src: "作者自绘示意", license: "CC BY-NC 4.0", note: "随本项目授权；非测绘成果，不作边界依据" }
   ],
   disclaimer: "底图为示意性海岸线与水系，不含现代国界/省界；不作为疆域与主权的依据。",
   view: { west: 65, east: 145, south: 0, north: 60 },

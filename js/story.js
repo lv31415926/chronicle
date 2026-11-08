@@ -15,7 +15,8 @@
 (function () {
   "use strict";
 
-  var INJECT_TIMEOUT = window.__CHRONICLE_STORY_TIMEOUT || 8000;
+  // 预算与事件分片同源（loader.js 定义）：异闻单片最大 69 KB，慢网下一片就要几秒
+  var INJECT_TIMEOUT = window.__CHRONICLE_STORY_TIMEOUT || window.ChronLoader.injectTimeout;
   var DIR = "data/story/";
   var MAN_FILE = "manifest.js";
 

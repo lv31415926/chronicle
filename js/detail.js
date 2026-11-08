@@ -398,7 +398,13 @@
       open('<div class="missing">未找到条目 <code>' + esc(id) + "</code><br>它可能属于尚未加载的分片。" +
            '<div class="acts"><button data-load="1">加载全部分片</button></div></div>', "missing");
       var btn = panel.querySelector('[data-load]');
-      if (btn) btn.onclick = function () { L.ensureAll().then(function () { ChronTimeline.invalidate(); openEvent(id); }); };
+      /* until：读者点这个按钮是为了这一条。分片一批批取，最坏要十几批才 resolve；
+       * 这一条到手就该动，剩下的交给后台补齐，不能为一把钥匙等整串。 */
+      if (btn) btn.onclick = function () {
+        L.ensureAll(function () { return !!L.eventById(id); }).then(function () {
+          ChronTimeline.invalidate(); openEvent(id);
+        });
+      };
       return;
     }
     document.getElementById("d-crumb").textContent = M.tracks[ev.track].label + " · " + dimOf(ev.dim).label;

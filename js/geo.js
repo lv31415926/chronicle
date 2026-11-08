@@ -11,7 +11,8 @@
 (function () {
   "use strict";
 
-  var INJECT_TIMEOUT = window.__CHRONICLE_GEO_TIMEOUT || 8000;
+  // 预算与事件分片同源（loader.js 定义）：舆图单片最大 163 KB，慢网下一片就要十几秒
+  var INJECT_TIMEOUT = window.__CHRONICLE_GEO_TIMEOUT || window.ChronLoader.injectTimeout;
   var FILES = [
     { id: "places", src: "data/geo/places.js", glob: "__CHRONICLE_PLACES" },
     { id: "overlay", src: "data/geo/event-places.js", glob: "__CHRONICLE_EVENT_PLACES" },

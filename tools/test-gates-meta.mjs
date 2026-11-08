@@ -1436,6 +1436,97 @@ const CASES = [
     to: 'for (const id of [m[4].split("、")[0]]) {',
     name: "多目标（见 a、b）逐个算",
   },
+  /* ---- 注入看门狗的两个预算与缺片出路（test-units ⑪⑫⑬ + 补齐轮数）----
+   * 托管上线后 28/29 片就是这么红的：夹具里 60ms 的看门狗什么都测得出来，
+   * 真实 8 s 却在慢网下一片都不够。数字本身、数字的唯一出处、判死之后的出路，
+   * 三样各配一条变异——少一条，对应的断言就可能是不会红的门。 */
+  {
+    label: "宽预算改回 8 s（慢网下整批判死，夹具里照样全绿）",
+    file: "js/loader.js",
+    runner: "tools/test-units.mjs",
+    from: "  var INJECT_TIMEOUT = window.__CHRONICLE_INJECT_TIMEOUT || 30000;",
+    to: "  var INJECT_TIMEOUT = window.__CHRONICLE_INJECT_TIMEOUT || 8000;",
+    name: "宽预算要罩得住最大那片",
+  },
+  {
+    label: "两个预算改反（首屏等满 90 s，后台 18 s 就判死）",
+    file: "js/loader.js",
+    runner: "tools/test-units.mjs",
+    from: "  var FIRST_TRY_TIMEOUT = window.__CHRONICLE_FIRST_TRY_TIMEOUT || 18000;",
+    to: "  var FIRST_TRY_TIMEOUT = window.__CHRONICLE_FIRST_TRY_TIMEOUT || 90000;",
+    name: "必须大于首屏预算",
+  },
+  {
+    label: "某一层把预算改回字面量（五处各自漂移的账又回来了）",
+    file: "js/geo.js",
+    runner: "tools/test-units.mjs",
+    from: "var INJECT_TIMEOUT = window.__CHRONICLE_GEO_TIMEOUT || window.ChronLoader.injectTimeout;",
+    to: "var INJECT_TIMEOUT = window.__CHRONICLE_GEO_TIMEOUT || 8000;",
+    name: "js/geo.js 的看门狗要从 ChronLoader 取",
+  },
+  {
+    label: "脚本顺序门切不出 loader（at() 恒 -1，顺序断言全在空转）",
+    file: "index.html",
+    runner: "tools/test-units.mjs",
+    from: '<script src="js/loader.js"></script>',
+    to: "",
+    name: "切得出 js/loader.js",
+  },
+  {
+    label: "ensureAll 退回全并发（首屏刚省下的带宽被一次性占满）",
+    file: "js/loader.js",
+    runner: "tools/test-units.mjs",
+    from: "      return loadInBatches(mf.chunks, until);",
+    to: "      return Promise.all(mf.chunks.map(function (c) { return loadChunk(c); })).then(sum);",
+    name: "ensureAll 的并发峰值须有封顶",
+  },
+  {
+    label: "一轮补齐后不再排下一轮（超时判死＝永久少一片）",
+    file: "js/app.js",
+    runner: "tools/test-units.mjs",
+    from: `        if (left && round + 1 < TOPUP_MAX_ROUNDS) {
+          console.warn("[app] 仍有 " + left + " 片未载入，" +
+            (TOPUP_BACKOFF_MS[round] || 20000) + "ms 后第 " + (round + 2) + " 轮补齐");
+          setTimeout(function () { topUpOnIdle(round + 1); },
+            TOPUP_BACKOFF_MS[round] || 20000);
+        }`,
+    /* 只把条件改成 false 是假门：守卫的正则还在，剩下的块体成了死代码，
+     * 测试照样绿。要验的是「排下一轮这件事真的没了」，所以必须掏空块体、留住宿主。 */
+    to: `        if (left && round + 1 < TOPUP_MAX_ROUNDS) { /* 变异：守卫还在，下一轮不排了 */ }`,
+    name: "一轮补齐后仍有缺片必须再排一轮",
+  },
+  {
+    label: "补齐轮数没有上限（404 那片每轮都红，定时器永不停）",
+    file: "js/app.js",
+    runner: "tools/test-units.mjs",
+    from: "        if (left && round + 1 < TOPUP_MAX_ROUNDS) {",
+    to: "        if (left) {",
+    name: "重试轮数必须有上限",
+  },
+  {
+    label: "until 守卫被删（这一条早到手，还要把整串取完）",
+    file: "js/loader.js",
+    runner: "tools/test-units.mjs",
+    from: "      if (until && until()) return n;",
+    to: "      if (false) return n;",
+    name: "首批 3 片落地即命中",
+  },
+  {
+    label: "until 写成恒真（深链兜底静默变成只取头一批）",
+    file: "js/loader.js",
+    runner: "tools/test-units.mjs",
+    from: "      if (until && until()) return n;",
+    to: "      if (true) return n;",
+    name: "永不命中时仍要把 5 片取完",
+  },
+  {
+    label: "深链不再传 until（为一把钥匙等整串又回来了）",
+    file: "js/detail.js",
+    runner: "tools/test-units.mjs",
+    from: "L.ensureAll(function () { return !!L.eventById(id); })",
+    to: "L.ensureAll()",
+    name: "js/detail.js 的深链兜底",
+  },
 ];
 
 let ok = 0;

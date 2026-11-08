@@ -782,7 +782,7 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
  * 每条断言都配反例（干净场景必须不报），否则「failedChunks 非空」也可能只是恒真。 */
 {
   const loaderSrc = fs.readFileSync(path.join(ROOT, "js/loader.js"), "utf8");
-  const TIMEOUT = 60;                       // 夹具用的看门狗；真实默认 8000ms
+  const TIMEOUT = 60;                       // 夹具用的看门狗；真实默认见本块末尾 ⑫
 
   const CHUNK_OK = (id, n) => `window.__CHRONICLE_CHUNK = window.__CHRONICLE_CHUNK || {}; window.__CHRONICLE_CHUNK[${JSON.stringify(id)}] = ` +
     JSON.stringify(Array.from({ length: n }, (_, i) => ({
@@ -792,27 +792,35 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
 
   function makeEnv(files) {
     const reqs = [];
+    let inflight = 0, peak = 0;
+    const done = (s) => { if (!s.__settled) { s.__settled = true; inflight--; } };  // 一条请求只退一次账
     const head = {
       appendChild(s) {
         s.parentNode = head;
         reqs.push(s.src);
+        if (++inflight > peak) peak = inflight;   // 同时在飞几条：分批与全并发在这里分家
         const f = files[s.src];
         if (f === "HANG") return;                       // 什么都不做：模拟既不成功也不报错
         setTimeout(() => {
+          done(s);
           if (!s.parentNode) return;                    // 已被看门狗摘掉，迟到的回调不再触发
           if (f === "404") { if (s.onerror) s.onerror(); return; }
           try { new Function("window", f)(win); } catch (e) { /* 求值失败在浏览器里也算 onload */ }
           if (s.onload) s.onload();
         }, 1);
       },
-      removeChild(s) { s.parentNode = null; },
+      /* HANG 那片只能在这里退账：它不走上面的 setTimeout，若不等看门狗把它摘掉时
+       * 递减，并发峰值会把「已经判死」的悬空请求一直算成在飞——⑬ 的封顶就成了假红。 */
+      removeChild(s) { done(s); s.parentNode = null; },
     };
     const win = {
       __CHRONICLE_INJECT_TIMEOUT: TIMEOUT,
+      __CHRONICLE_FIRST_TRY_TIMEOUT: TIMEOUT,   // 两个预算都要压到夹具尺度，否则 ensureRange 悬挂用例会真等 18 s
       addEventListener() {}, dispatchEvent() {},
     };
     win.window = win;
     win.__reqs = reqs;                 // 注入次序：视窗优先与远近排序的判据都读它
+    win.__peak = () => peak;           // 并发峰值：慢网下整批超时的那条路就从这里现形
     const doc = { head, createElement: () => ({ style: {} }), getElementById: () => null, addEventListener() {} };
     new Function("window", "document", "setTimeout", "clearTimeout", "CustomEvent", loaderSrc)(
       win, doc, setTimeout, clearTimeout, function (t, o) { this.type = t; this.detail = o && o.detail; });
@@ -943,6 +951,114 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
     await win10.ChronLoader.ensureRest(1990, 2000);
     eq(win10.ChronLoader.failedChunks(), [], "下一轮补齐把失败片救回后必须撤账（旧失败记录会让状态栏永久挂 ⚠）");
     eq(win10.ChronLoader.stats().loadedChunks, 5, "救回后 5 片齐全");
+  }
+
+  /* ---------- ⑪ 超时判死之后还有没有第二条路 ----------
+   * 看门狗只是把「永远悬着」换成「到点报错」，报错本身不等于有出路。托管上线后
+   * 28/29 片就是这么红的：判死没错，错在判死之后全站再也没取过它们一次。
+   * 所以这里断言的不只是「第二轮返回 0 条新增之外的状态」，而是那一片被
+   * 重新注入了一次——只看 failedChunks 清零，分不清它是自己回来的还是根本没再取。 */
+  {
+    const files11 = {
+      "data/manifest.js": mf([c("cn-95", "cn/cn-95.js")]),
+      "data/cn/cn-95.js": "HANG",
+    };
+    const win11 = makeEnv(files11);
+    await win11.ChronLoader.ensureAll();
+    eq(win11.ChronLoader.failedChunks().map((b) => b.id), ["cn-95"],
+      "注入悬挂要判超时并进账（不判则这一轮永远悬着）");
+    files11["data/cn/cn-95.js"] = CHUNK_OK("cn-95", 2);
+    await win11.ChronLoader.ensureAll();
+    eq(win11.__reqs.filter((r) => r === "data/cn/cn-95.js").length, 2,
+      "超时那片在下一轮必须真的重新注入（ensureAll 退回全并发或被 loaded 误标就取不到这一笔）");
+    eq([win11.ChronLoader.stats().total, win11.ChronLoader.failedChunks().length], [2, 0],
+      "重取成功后 2 条入库、失败账清零");
+  }
+
+  /* ---------- ⑫ 两个预算的「真实默认值」本身 ----------
+   * ①–⑪ 全在夹具尺度（60ms）里验行为，唯一验不出的是数字够不够大：8 s 在夹具里
+   * 一样测得出超时，上线却把整站判死。数字本身必须有一道门，而且判据不能靠
+   * 注释里那个会过期的数——分片体积从磁盘现算。
+   * 吞吐下限取托管链路（GitHub Pages）curl 四组实测最慢的一档 13 KB/s（其余 44/51/110）。 */
+  {
+    const grab = (re, label) => {
+      const m = loaderSrc.match(re);
+      ok(!!m, `loader.js 里要能读到 ${label} 的默认值字面量（改成别的写法就同步改这道门）`);
+      return m ? Number(m[1]) : NaN;
+    };
+    const WIDE = grab(/__CHRONICLE_INJECT_TIMEOUT \|\| (\d+)/, "宽预算");
+    const FIRST = grab(/__CHRONICLE_FIRST_TRY_TIMEOUT \|\| (\d+)/, "首屏预算");
+    const BW = 13 * 1024;
+    const mw = {};
+    new Function("window", fs.readFileSync(path.join(ROOT, "data/manifest.js"), "utf8"))(mw);
+    const sizes = mw.__CHRONICLE_MANIFEST.chunks
+      .map((c) => fs.statSync(path.join(ROOT, "data", c.file)).size)
+      .sort((a, b) => a - b);
+    const max = sizes[sizes.length - 1], median = sizes[Math.floor(sizes.length / 2)];
+    ok(WIDE > FIRST, `宽预算 ${WIDE}ms 必须大于首屏预算 ${FIRST}ms：首屏那条路有人在遮罩前等，后台那条没有`);
+    ok(WIDE / 1000 * BW >= max,
+      `宽预算要罩得住最大那片（${max}B）在最慢吞吐下的耗时（需 ≥ ${(max / BW).toFixed(1)}s，实得 ${WIDE / 1000}s）`);
+    ok(FIRST / 1000 * BW >= median,
+      `首屏预算要罩得住中位数那片（${median}B）在最慢吞吐下的耗时（需 ≥ ${(median / BW).toFixed(1)}s，实得 ${FIRST / 1000}s）`);
+
+    /* 另外四层不再自带数字：谁把它们改回字面量，两个预算就又变成五份会各自漂移的账。 */
+    const others = { geo: "__CHRONICLE_GEO_TIMEOUT", frame: "__CHRONICLE_FRAME_TIMEOUT",
+      story: "__CHRONICLE_STORY_TIMEOUT", chain: "__CHRONICLE_CHAIN_TIMEOUT" };
+    const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+    const noCmt = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+    const at = (name) => html.indexOf(`src="js/${name}.js"`);
+    ok(at("loader") > 0, "index.html 里切得出 js/loader.js（切不出则下面的顺序断言全在空转）");
+    Object.keys(others).forEach((name) => {
+      const src = noCmt(fs.readFileSync(path.join(ROOT, `js/${name}.js`), "utf8"));
+      ok(new RegExp(`var INJECT_TIMEOUT = window\\.${others[name]} \\|\\| window\\.ChronLoader\\.injectTimeout;`).test(src),
+        `js/${name}.js 的看门狗要从 ChronLoader 取（写回字面量就会有五处各自漂移的默认值）`);
+      ok(at("loader") < at(name),
+        `js/${name}.js 依赖 ChronLoader.injectTimeout，必须排在 js/loader.js 之后加载（顺序换过来它取到的是 undefined）`);
+    });
+  }
+
+  /* ---------- ⑬ 分批：并发数必须有封顶 ----------
+   * 阈值放宽只是止血，真正让「加载全部分片」在慢网下整批超时的是并发：29 条请求
+   * 一起出去，每条只分到 1/29 的带宽，于是每条都更慢、每条都撞看门狗——实测点这个
+   * 按钮 50 s 后一片也没回来。夹具里每片 1 ms 落地，全并发同样不会超时，
+   * 所以只能看「任意同时在飞几条」，不能看结果。
+   * 3 = loader.js 的 REST_BATCH，这里再写一遍是交叉核对：把它改成 6 属于放宽并发，
+   * 得同时改两处，正是希望被看见的那种改动。 */
+  {
+    const files13 = { "data/manifest.js": mf([0, 1, 2, 3, 4].map((i) => c("cn-9" + i, "cn/cn-9" + i + ".js"))) };
+    for (let i = 0; i < 5; i++) files13["data/cn/cn-9" + i + ".js"] = CHUNK_OK("cn-9" + i, 2);
+    const win13 = makeEnv(files13);
+    await win13.ChronLoader.ensureAll();
+    ok(win13.__peak() <= 3,
+      `ensureAll 的并发峰值须有封顶（实得 ${win13.__peak()}，5 片全并发就是把首屏刚省下的带宽一次性占满）`);
+    ok(win13.__reqs.length === 6, "5 片 + 清单确实都取过（封顶不是靠少取实现的）");
+  }
+
+  /* ---------- ⑭ until：为一把钥匙不必等整串 ----------
+   * 分批之后 ensureAll 最坏要十几批才 resolve，而深链 #/event 等的只是那一条。
+   * 这里验两件事：命中即收手（后面的批次不再发），以及没命中时不能提前收手
+   * （否则「until 恒真」这种写法会把兜底悄悄变成不兜底——数据永久少一片）。
+   * 谓词故意只读夹具的请求台账、不碰 ChronLoader 的导出：这里一旦依赖 eventById，
+   * 任何把那个导出改坏的变异都会先把整台测试崩掉，反而让「改坏导出」那条哨兵没了名字。 */
+  {
+    const files14 = { "data/manifest.js": mf([0, 1, 2, 3, 4].map((i) => c("cn-9" + i, "cn/cn-9" + i + ".js"))) };
+    for (let i = 0; i < 5; i++) files14["data/cn/cn-9" + i + ".js"] = CHUNK_OK("cn-9" + i, 2);
+    const win14 = makeEnv(files14);
+    await win14.ChronLoader.ensureAll(function () { return win14.__reqs.length >= 4; });   // 头一批 3 片到手
+    eq(win14.__reqs.length, 4, "首批 3 片落地即命中 ⇒ 只取清单 + 3 片（多取说明 until 没生效）");
+    eq(win14.__reqs.slice(4), [], "命中之后的分片不再注入（剩下的交给后台补齐）");
+
+    const win15 = makeEnv(files14);
+    await win15.ChronLoader.ensureAll(function () { return false; });
+    eq(win15.__reqs.length, 6, "永不命中时仍要把 5 片取完（until 写错成恒真就等于深链兜底消失）");
+
+    /* 调用点也得真的传：只改 loader 不改两处深链，读者等的那条还是走完十几批。 */
+    const noCmt = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+    for (const f of ["js/router.js", "js/detail.js"]) {
+      const src = noCmt(fs.readFileSync(path.join(ROOT, f), "utf8"));
+      ok(/ensureAll\(function \(\) \{ return !!L\.eventById\(/.test(src),
+        `${f} 的深链兜底要把「这一条到手」作为 until 传给 ensureAll（不传则为等一条而等全部）`);
+    }
   }
 }
 
@@ -1688,10 +1804,16 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
   ok(/L\.ensureRange\(/.test(head), "ready 之前确实取了视窗那几片（视窗优先≠不取数据）");
   ok(/topUpOnIdle\(\)/.test(bootBody.slice(readyAt)),
      "ready 之后真的安排了后台补齐（只在函数里定义却无人调用=补齐永不发生，全站只剩首屏那几片）");
-  ok(/function topUpOnIdle\(\)[\s\S]*?L\.ensureRest\(/.test(app),
+  ok(/function topUpOnIdle\([^)]*\)[\s\S]*?L\.ensureRest\(/.test(app),
      "topUpOnIdle 调的是 ensureRest（空函数或只更新状态栏都不算补片）");
-  ok(/function topUpOnIdle\(\)[\s\S]*?requestIdleCallback[\s\S]*?else setTimeout\(/.test(app),
+  ok(/function topUpOnIdle\([^)]*\)[\s\S]*?requestIdleCallback[\s\S]*?else setTimeout\(/.test(app),
      "没有 requestIdleCallback 的浏览器也要补（Safari 走 else 分支，否则「视窗优先」退化成永远只补一半）");
+  /* 判死之后还得有第二条路：托管上线后 28/29 片就是这样红的——看门狗到点报错没错，
+   * 错在报完错全站再也没取过它们一次。所以「一轮跑完仍有缺片」必须自己排下一轮。 */
+  ok(/function topUpOnIdle\([^)]*\)[\s\S]*?failedChunks\(\)[\s\S]*?topUpOnIdle\(round \+ 1\)/.test(app),
+     "一轮补齐后仍有缺片必须再排一轮（只看这一轮返回了几条新增，分不清「没有缺片」和「缺了也不管」）");
+  ok(/round \+ 1 < TOPUP_MAX_ROUNDS/.test(app),
+     "重试轮数必须有上限（真缺文件那片每轮都红，无上限等于挂一个永久的后台定时器）");
 
   /* 补齐完成必须有渲染者：长河顶部写着「数据仅载入 x/y 片」，无人刷新就会在全片落地后继续自称不完整 */
   const river = stripC(read("js/river.js"));
@@ -1705,7 +1827,7 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
   /* 深链兜底：先看到局部不能变成「点进深链也只看到局部」 */
   const deep = [["js/router.js", 2], ["js/themes.js", 1], ["js/detail.js", 1]];
   for (const [f, min] of deep) {
-    const n = (stripC(read(f)).match(/L\.ensureAll\(\)|ChronLoader\.ensureAll\(\)/g) || []).length;
+    const n = (stripC(read(f)).match(/L\.ensureAll\([^)]*\)|ChronLoader\.ensureAll\([^)]*\)/g) || []).length;
     ok(n >= min, `${f} 的深链入口仍须自带 ensureAll 兜底（实得 ${n} 处，至少 ${min} 处）：` +
        `条目 id 与检索命中的分片很可能不在首屏视窗内`);
   }

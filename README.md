@@ -511,6 +511,12 @@ topics/             静态专题页（生成物）+ topic.css；llms.txt 是给 
    投稿弹窗的骨架与 `.contrib*` 样式、开场题记（`index.html` 的 `#boot .epigraph`
    与 `css/layout.css` 的题记样式块）、状态条的备案号链接 `.beian`，或数据元信息后必跑。含加载器失效路径：
    注入悬挂/缺文件/坏 manifest 时，遮罩必须超时判失败而不是把整站冻死（`failedChunks()` 必须留账）。
+   这一层还管两个看门狗预算的**数字本身**（首屏 `FIRST_TRY` 18 s / 后台 `INJECT_TIMEOUT` 30 s，定义只在
+   `js/loader.js` 一处，`js/geo|frame|story|chain.js` 从 `ChronLoader.injectTimeout` 取）：改动这两行、
+   或改动那四层的取数行后必跑——⑫ 按磁盘上的真实分片体积验这两个数罩得住最慢链路（托管实测 13 KB/s 时
+   中位那片要 15.2 s，旧的 8 s 上线把 28/29 片判了超时）、⑬ 验 `ensureAll` 的并发有封顶、⑭ 验传了 `until`
+   的深链（`js/router.js`、`js/detail.js` 等那一条到手就收手，后面的批次交给后台补齐）、⑪ 验判死那片
+   在下一轮被重新注入而不是永久留在 ⚠ 名单里。夹具把两个预算都压到 60 ms，所以夹具全绿证明不了数字够大。
 5. `node tools/e2e-static.mjs` — 改 `js/` 或 `index.html` 的脚本顺序后必跑。零构建站的全部
    致命约束（无 fetch、无 ES module、脚本顺序即依赖顺序、**资源一律相对路径**）都在这里查，不靠浏览器。
    相对路径不是风格问题：本站同时要在 `file://` 与 `https://<owner>.github.io/<repo>/` 下活，

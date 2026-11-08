@@ -9,7 +9,8 @@
 (function () {
   "use strict";
 
-  var INJECT_TIMEOUT = window.__CHRONICLE_FRAME_TIMEOUT || 8000;
+  // 预算与事件分片同源（loader.js 定义），不再各层写死一个数字
+  var INJECT_TIMEOUT = window.__CHRONICLE_FRAME_TIMEOUT || window.ChronLoader.injectTimeout;
   var SRC = "data/frame/highlights.js";
   var loaded = false, failing = null;
   var panel = null, body = null, head = null;

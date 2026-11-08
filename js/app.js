@@ -329,10 +329,16 @@
     $("btn-loadall").addEventListener("click", function () {
       var b = this;
       b.disabled = true; b.textContent = "加载中…";
+      function restore() { b.disabled = false; b.textContent = "加载全部分片"; }
       L.ensureAll().then(function () {
-        Tm.invalidate(); b.disabled = false; b.textContent = "加载全部分片";
+        Tm.invalidate(); restore();
         ChronDetail.isOpen() && ChronDetail.flash("全部分片已加载");
         window.dispatchEvent(new Event("chronicle:ready"));
+      }).catch(function (e) {
+        /* 这个按钮是缺片时读者手里唯一的手动出口。清单本身没取到时 ensureAll
+         * 会 reject——不接住的话按钮永久停在「加载中…」Disabled，等于把出口也堵死。 */
+        console.error("[app] 全量加载中断：" + e.message);
+        restore(); updateStatus();
       });
     });
 
@@ -436,14 +442,29 @@
    * 没它（Safari）则固定延时执行——两条路都必须把剩下的分片取完。少了这一步，
    * 「视窗优先」就退化成「永远只有视窗里那几片」，拿优化当借口少给数据比慢一点严重得多。
    * 补齐完成派发 chronicle:rest：长河顶部写着「数据仅载入 x/y 片」，全片落地后
-   * 那句话就成了假话，必须由它的渲染者刷新一次（只在收尾时一次，不逐片重画）。 */
-  function topUpOnIdle() {
+   * 那句话就成了假话，必须由它的渲染者刷新一次（只在收尾时一次，不逐片重画）。
+   *
+   * 一轮跑完还有缺片时再补两轮（间隔递增）。理由不是「多试几次运气好」：
+   * 分批取数时前面的批次会占住带宽，后面的分片更容易撞看门狗；而 ensureRest 的
+   * 队列只排除「已载入」，所以第二轮天然就是「只补缺的那几片」。
+   * 上限必须存在——真缺文件（404）的片每轮都会红，无上限等于挂一个永久定时器。 */
+  var TOPUP_MAX_ROUNDS = 3;
+  var TOPUP_BACKOFF_MS = [8000, 20000];
+  function topUpOnIdle(round) {
+    round = round || 0;
     var run = function () {
       var v = S.get().view;
       L.ensureRest(Math.floor(v.from), Math.ceil(v.to)).then(function (n) {
         if (n) Tm.invalidate();
         updateStatus();
         window.dispatchEvent(new CustomEvent("chronicle:rest", { detail: { added: n } }));
+        var left = L.failedChunks().length;
+        if (left && round + 1 < TOPUP_MAX_ROUNDS) {
+          console.warn("[app] 仍有 " + left + " 片未载入，" +
+            (TOPUP_BACKOFF_MS[round] || 20000) + "ms 后第 " + (round + 2) + " 轮补齐");
+          setTimeout(function () { topUpOnIdle(round + 1); },
+            TOPUP_BACKOFF_MS[round] || 20000);
+        }
       }).catch(function (e) {
         /* 启动遮罩已经让位，这里不能再用 catch 里那套 .fail 把整屏盖回来；
          * 缺片由状态栏的「已载 x·y 分片」如实呈现。 */
@@ -451,8 +472,8 @@
         updateStatus();
       });
     };
-    if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 4000 });
-    else setTimeout(run, 1200);
+    if (round === 0 && window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 4000 });
+    else setTimeout(run, round === 0 ? 1200 : 0);
   }
 
   function boot() {
@@ -494,7 +515,11 @@
       var bad = L.failedChunks(), s = L.stats();
       $("boot-stat").textContent = "已载入 " + s.total + " 条事件（视窗内 " + s.loadedChunks + "/" + s.totalChunks +
         " 片，其余在后台补齐，" + Math.round(performance.now() - t0) + " ms）" +
-        (bad.length ? "；有 " + bad.length + " 片未能载入：" + bad.map(function (b) { return b.id; }).join("、") : "");
+        /* 这句原来只说「未能载入：id 名单」，读完像是本站缺了这些片；托管上 28 片
+         * 全是这么红的，而真凶只是链路。缺片要如实报，出路也要一并说清。 */
+        (bad.length ? "；有 " + bad.length + " 片这次没取到（多为链路慢或抖动，非缺文件），" +
+          "随后自动补齐 " + TOPUP_MAX_ROUNDS + " 轮；也可点顶栏「加载全部分片」立刻重试：" +
+          bad.map(function (b) { return b.id; }).join("、") : "");
       armEnter(Math.max(0, ENTER_REVEAL - (performance.now() - t0)));
       window.dispatchEvent(new Event("chronicle:ready"));
       window.ChronRouter.init();

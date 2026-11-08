@@ -14,16 +14,32 @@
 
   /* 一条 <script> 若既不触发 onload 也不触发 onerror（file:// 被拦截、磁盘挂起、
    * 代理中断），Promise 就永远不 settle，启动遮罩会盖死整站且没有任何出路。
-   * 所以每条注入都必须自带终点：到点即判失败，宁可少一片也不能冻在遮罩上。 */
-  var INJECT_TIMEOUT = window.__CHRONICLE_INJECT_TIMEOUT || 8000;
-  function injectScript(src) {
+   * 所以每条注入都必须自带终点：到点即判失败，宁可少一片也不能冻在遮罩上。
+   *
+   * 终点定多远要看链路有多慢。托管链路（GitHub Pages）实测吞吐 13–110 KB/s 剧烈
+   * 波动，事件分片 29 片中最小 41 KB、中位 198 KB、最大 320 KB ⇒ 最慢一档下单片
+   * 15–25 s。旧的 8 s 在本地永远碰不到，上线后却把 28/29 片判成超时——看门狗把自己
+   * 变成了主要故障源，而且判死之后首屏那条链一次也没被救回来。
+   * 于是分成两个预算（两个数字由 test-units ⑫ 按磁盘上的真实分片体积兜住）：
+   *   FIRST_TRY 用在启动路径（清单 + 视窗内）：遮罩最多等一轮这个数（清单才 3 KB，
+   *     13 KB/s 下 0.2 s，真正吃时间的是视窗那片），18 s 已够在最慢吞吐下拉完
+   *     中位数那片（198 KB ≈ 15.2 s），只有更胖的片会落到第二轮；
+   *   INJECT_TIMEOUT 用在后台补齐与全量加载，这一路没有人等在屏幕前，宁可慢也要取到。
+   * 视窗那片若在第一预算内没到，会留在「未载入」队列里由后台补齐用宽预算重试
+   * （app.js 的 topUpOnIdle 最多三轮）。真缺文件走的仍是一条 <script>，404 由 onerror
+   * 立刻判死，不会白等 30 s——宽预算只兜「连上了但一直不落地」这一类。
+   * 这两个数字是全站共用的，geo/frame/story/chain 四层从这里取，不再各自写字面量。 */
+  var INJECT_TIMEOUT = window.__CHRONICLE_INJECT_TIMEOUT || 30000;
+  var FIRST_TRY_TIMEOUT = window.__CHRONICLE_FIRST_TRY_TIMEOUT || 18000;
+  function injectScript(src, ms) {
+    var timeout = ms || INJECT_TIMEOUT;
     return new Promise(function (resolve, reject) {
       var s = document.createElement("script");
       var timer = setTimeout(function () {
         s.onload = s.onerror = null;         // 迟到的回调不能再碰已移除的节点
         if (s.parentNode) s.parentNode.removeChild(s);
-        reject(new Error("加载超时（" + INJECT_TIMEOUT + "ms 无响应）：" + src));
-      }, INJECT_TIMEOUT);
+        reject(new Error("加载超时（" + timeout + "ms 无响应）：" + src));
+      }, timeout);
       function settle(fn) {
         return function () {
           clearTimeout(timer);
@@ -68,11 +84,11 @@
     return n;
   }
 
-  function loadChunk(meta) {
+  function loadChunk(meta, ms) {
     var id = meta.id;
     if (loaded[id]) return Promise.resolve(0);
     if (pending[id]) return pending[id];
-    pending[id] = injectScript(BASE + meta.file).then(function () {
+    pending[id] = injectScript(BASE + meta.file, ms).then(function () {
       var store = window.__CHRONICLE_CHUNK || {};
       if (!Array.isArray(store[id])) {
         /* onload 只说明文件求值过，不说明它把数据挂上了：分片语法错、key 写错、
@@ -108,7 +124,9 @@
   var manifest = null;
   function ensureManifest() {
     if (manifest) return Promise.resolve(manifest);
-    return injectScript(BASE + "manifest.js").then(function () {
+    /* 清单只有几 KB，却在启动路径上卡着整屏 ⇒ 用紧预算：宁可早点判失败走重试，
+     * 也不让读者对着遮罩等 30 s。 */
+    return injectScript(BASE + "manifest.js", FIRST_TRY_TIMEOUT).then(function () {
       var mf = window.__CHRONICLE_MANIFEST;
       if (!mf || !Array.isArray(mf.chunks)) throw new Error("manifest.js 缺少 chunks");
       manifest = mf;                       // 校验通过才落账：先赋值会让下次调用把坏清单当好清单
@@ -116,18 +134,26 @@
     });
   }
 
+  /* 注意：下面几处 map 一律写成显式包装函数，不能 `.map(loadChunk)`——
+   * map 会把数组下标当第二个实参喂进来，下标就成了毫秒数。 */
   function ensureRange(from, to) {
     return ensureManifest().then(function (mf) {
       var need = chunksForRange(mf, from, to);
-      return Promise.all(need.map(loadChunk)).then(function (rs) {
-        return rs.reduce(function (a, b) { return a + b; }, 0);
-      });
+      return Promise.all(need.map(function (c) { return loadChunk(c, FIRST_TRY_TIMEOUT); }))
+        .then(sum);
     });
   }
 
-  function ensureAll() {
+  /* 「加载全部分片」按钮走这一条：全并发会把带宽一次性占满，慢网下 29 条同时
+   * 各拉一条 ⇒ 每条都更慢 ⇒ 整批一起超时（实测点这个按钮 50 s 后 0 片恢复）。
+   * 所以和后台补齐共用分批与宽预算，把它变成真正能救回缺片的手动出口。
+   *
+   * until 是给「读者在等的这一条」留的出口：分批之后最坏要十几批才 resolve，
+   * 而深链 #/event 只需要那一条落地就该动——剩下的交给后台补齐，不能让人家
+   * 为一把钥匙等整串。每批开始前问一次，命中即收手。 */
+  function ensureAll(until) {
     return ensureManifest().then(function (mf) {
-      return Promise.all(mf.chunks.map(loadChunk));
+      return loadInBatches(mf.chunks, until);
     });
   }
 
@@ -147,20 +173,27 @@
       .map(function (x) { return x.c; });
   }
 
+  function sum(rs) { return rs.reduce(function (a, b) { return a + b; }, 0); }
+
   var REST_BATCH = 3;
-  /* 后台补齐：分批而非并发全部，也不是一片片串——串起来最坏要等看门狗把每个
-   * 死链各耗一轮（27 × 8s）；全并发则把首屏刚省下的带宽一次性占满。
+  /* 分批取：不并发全部，也不一片一片串——串起来每片都要各自等一轮看门狗，
+   * 全并发则把首屏刚省下的带宽一次性占满。
    * 队列只排除「已载入」，不排除「已失败」：一次抖动不该永久少一片，下一轮补齐
    * 还有机会把它救回来；是否重复取由 loadChunk 的 loaded/pending 两道守卫决定。 */
+  function loadInBatches(list, until) {
+    function step(i, n) {
+      if (i >= list.length) return n;
+      if (until && until()) return n;         // 读者等的那一条已经到手，后面的批次交给补齐
+      return Promise.all(list.slice(i, i + REST_BATCH)
+        .map(function (c) { return loadChunk(c); }))
+        .then(function (rs) { return step(i + REST_BATCH, n + sum(rs)); });
+    }
+    return step(0, 0);
+  }
+
   function ensureRest(from, to) {
     return ensureManifest().then(function (mf) {
-      var need = restChunks(mf, from, to);
-      function step(i, n) {
-        if (i >= need.length) return n;
-        return Promise.all(need.slice(i, i + REST_BATCH).map(loadChunk))
-          .then(function (rs) { return step(i + REST_BATCH, n + rs.reduce(function (a, b) { return a + b; }, 0)); });
-      }
-      return step(0, 0);
+      return loadInBatches(restChunks(mf, from, to));
     });
   }
 
@@ -194,6 +227,10 @@
   }
 
   window.ChronLoader = {
+    /* 看门狗的两个预算：本层是唯一定义处，geo/frame/story/chain 从这里取，
+     * 免得同一个数字在五份文件里各自漂移。 */
+    injectTimeout: INJECT_TIMEOUT,
+    firstTryTimeout: FIRST_TRY_TIMEOUT,
     ensureManifest: ensureManifest,
     ensureRange: ensureRange,
     ensureAll: ensureAll,

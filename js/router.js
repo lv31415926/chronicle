@@ -55,9 +55,10 @@
     if (r.name === "event") {
       var ev = L.eventById(r.params.id);
       if (!ev) {
-        /* 补完全部分片再认一次；仍没有就必须说一句话——静默不动会让
-         * 「链接错了」看起来像「页面坏了」。 */
-        L.ensureAll().then(function () {
+        /* 补到这一条落地就认一次；仍没有就必须说一句话——静默不动会让
+         * 「链接错了」看起来像「页面坏了」。until 是因为补齐改成分批之后，
+         * 等全部分片最坏是十几批，而深链要的只是这一条。 */
+        L.ensureAll(function () { return !!L.eventById(r.params.id); }).then(function () {
           window.ChronTimeline.invalidate();
           var e2 = L.eventById(r.params.id);
           if (!e2) { ChronDetail.flash("链接指向的条目不存在：" + r.params.id, 5000); return; }

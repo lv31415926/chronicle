@@ -15,7 +15,8 @@
 (function () {
   "use strict";
 
-  var INJECT_TIMEOUT = window.__CHRONICLE_CHAIN_TIMEOUT || 8000;
+  // 预算与事件分片同源（loader.js 定义），不再各层写死一个数字
+  var INJECT_TIMEOUT = window.__CHRONICLE_CHAIN_TIMEOUT || window.ChronLoader.injectTimeout;
   var DIR = "data/chain/";
   var MAN_FILE = "manifest.js";
 

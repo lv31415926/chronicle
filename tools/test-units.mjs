@@ -1831,6 +1831,18 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
     ok(n >= min, `${f} 的深链入口仍须自带 ensureAll 兜底（实得 ${n} 处，至少 ${min} 处）：` +
        `条目 id 与检索命中的分片很可能不在首屏视窗内`);
   }
+
+  /* 进门落在长河：遮罩上那颗按钮写的是「进 入 长 河」，点完的首屏就必须真的是长河，
+   * 而不是把文案当修辞、把读者交给星点画布。但带深链进来时不许改写地址栏——
+   * 那等于把他转发的那条链接降级成了首页。 */
+  const atEnter = app.indexOf("function enter()");
+  const atBind = app.indexOf('b.addEventListener("click", enter)');
+  ok(atEnter > 0 && atBind > atEnter, "切得出 armEnter 里的 enter() 与它的绑定（切不出则下面两条全在空转）");
+  const enterBody = atEnter > 0 && atBind > atEnter ? app.slice(atEnter, atBind) : "";
+  ok(/go\("#\/river"\)/.test(enterBody),
+     "点击「进入长河」要落到长河视图（题记按钮与实况不符，且新访客第一眼看到的是装饰不是内容）");
+  ok(/location\.hash/.test(enterBody),
+     "落到长河之前要先读地址栏（无条件改写会把 #/event 深链的读者拽回总览，转发链接等于失效）");
 }
 
 /* ============ compare.js：关联边去重与「跨线一条都不许被挤掉」 ============

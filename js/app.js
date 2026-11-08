@@ -433,6 +433,12 @@
       if (b.classList.contains("fail") || b.classList.contains("done")) return;
       b.classList.add("done");
       b.removeEventListener("click", enter);
+      /* 进门落在长河视图：按钮写的是「进入长河」，从前却落在星点画布上，
+       * 读者第一眼看到的是装饰而不是内容。一屏年表更容易让人知道这里有什么。
+       * 走路由而不是直接 ChronRiver.open()：开法只留一处，地址栏同步成可分享的 #/river。
+       * 带深链进来时不动——读者要从他点进来的那一处继续，别把他拽回总览。 */
+      var h = location.hash;
+      if (!h || h === "#" || h === "#/" || h === "#/timeline") window.ChronRouter.go("#/river");
     }
     b.addEventListener("click", enter);
   }

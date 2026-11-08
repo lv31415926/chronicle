@@ -1527,6 +1527,22 @@ const CASES = [
     to: "L.ensureAll()",
     name: "js/detail.js 的深链兜底",
   },
+  {
+    label: "「进入长河」又落回星点画布（按钮文案与首屏不符）",
+    file: "js/app.js",
+    runner: "tools/test-units.mjs",
+    from: '      if (!h || h === "#" || h === "#/" || h === "#/timeline") window.ChronRouter.go("#/river");',
+    to: '      if (!h || h === "#") window.ChronRouter.go("#/timeline");',
+    name: "点击「进入长河」要落到长河视图",
+  },
+  {
+    label: "进门无条件改写地址栏（深链读者被拽回总览）",
+    file: "js/app.js",
+    runner: "tools/test-units.mjs",
+    from: '      var h = location.hash;\n      if (!h || h === "#" || h === "#/" || h === "#/timeline") window.ChronRouter.go("#/river");',
+    to: '      window.ChronRouter.go("#/river");',
+    name: "落到长河之前要先读地址栏",
+  },
 ];
 
 let ok = 0;

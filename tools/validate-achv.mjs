@@ -65,9 +65,9 @@ const FLOOR = { members: 15, hi: 2, mid: 10, cn: 5 };
  * politics/military/figure/disaster 不在此列——战争与灾荒的锚点不是「成就」，
  * 把它们算进来会让棘轮去追一批本就不该按成就标准要求的条目。 */
 const ACHV_DIMS = ["science", "culture", "art", "institution", "explore", "economy"];
-/* 棘轮基线：2026-11-05 复算 成就维 w≥4 共 630 条，其中溯源只到「仅书名」190 条。
- * 只许降不许升；清到 0 才是目标，但目标不是这条线。 */
-const PROV_BASELINE = 190;
+/* 棘轮基线：2026-11-09 复算（明代批次落盘后）成就维 w≥4 共 636 条，其中溯源只到「仅书名」187 条。
+ * 上一次复算为 2026-11-05 的 630/190。只许降不许升；清到 0 才是目标，但目标不是这条线。 */
+const PROV_BASELINE = 187;
 
 /* 只查叙述性字段（title/summary/background/process/impact）——那是本站对读者说话的口气。
  * tags / sources / figures / place / state 不查：它们是名词性片段不是句子，

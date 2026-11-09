@@ -26,6 +26,19 @@ const ACHV_LINES = [
 const DIMS = ["science", "culture", "art", "institution", "explore", "economy"];
 const KW = "夹具关键词";
 
+/* 棘轮基线只有一份，住在 tools/validate-achv.mjs。夹具从它的源码里把数读出来，
+ * 不再抄第二个——抄了就意味着每次降基线都得记得同步改夹具，
+ * 忘了的话「压在基线上判绿」这条正控制会先变红，看起来像门坏了一样。 */
+const BASELINE = (() => {
+  const src = fs.readFileSync(path.join(ROOT, "tools", "validate-achv.mjs"), "utf8");
+  const m = /const PROV_BASELINE = (\d+);/.exec(src);
+  if (!m) throw new Error("未能从 validate-achv.mjs 读出 PROV_BASELINE");
+  const n = Number(m[1]);
+  /* 棘轮夹具是 200 条，基线一旦 ≥199 就压不出「比基线多一条」的红——必须当场喊，不能静默失效 */
+  if (n >= 199) throw new Error(`棘轮夹具 200 条装不下基线 ${n}：加大夹具或改回读真实语料`);
+  return n;
+})();
+
 const dump = (name, v) => `window.${name} = ${JSON.stringify(v, null, 1)};\n`;
 const chunk = (id, list) => `window.__CHRONICLE_CHUNK = window.__CHRONICLE_CHUNK || {};\n` +
   `window.__CHRONICLE_CHUNK[${JSON.stringify(id)}] = ${JSON.stringify(list, null, 1)};\n`;
@@ -50,7 +63,7 @@ function mkEv(i, opt) {
 function compactEvents() {
   return Array.from({ length: 30 }, (_, i) => mkEv(i));
 }
-/* 棘轮夹具 200 条：全部落在成就维、全部 w≥4，其中 190 条只到书名——正压在基线上。 */
+/* 棘轮夹具 200 条：全部落在成就维、全部 w≥4，其中 BASELINE 条只到书名——正压在基线上。 */
 function ratchetEvents(titled) {
   return Array.from({ length: 200 }, (_, i) => mkEv(i, { dim: "science", weight: 4, titled: i < titled }));
 }
@@ -64,7 +77,7 @@ function themes(extra) {
 }
 
 function fixture(mutate, opts) {
-  const o = Object.assign({ mode: "compact", titled: 190, extraTheme: true }, opts);
+  const o = Object.assign({ mode: "compact", titled: BASELINE, extraTheme: true }, opts);
   const data = {
     events: o.mode === "ratchet" ? ratchetEvents(o.titled) : compactEvents(),
     themes: themes(o.extraTheme),
@@ -101,7 +114,7 @@ function mustGreen(name, mutate, opts) {
 
 /* ⓪ 正控制：两套夹具都得先绿，否则下面的「变红」可能只是夹具本来就没跑通 */
 mustGreen("紧凑夹具基线判绿");
-mustGreen("棘轮夹具压在基线 190 上判绿", null, { mode: "ratchet", titled: 190 });
+mustGreen(`棘轮夹具压在基线 ${BASELINE} 上判绿`, null, { mode: "ratchet", titled: BASELINE });
 
 /* ① 注入器自审：全局名写错必须红，证明门真在读 data/themes.js */
 {
@@ -130,8 +143,8 @@ mustGreen("非成就线塌方不牵连成就门", (d) => {
 });
 
 /* ④ ACHV_PROV_RATCHET：只许降不许升——在 200 条的全量级夹具上才测得动 */
-mustRed("仅书名的成就锚点越过基线一条", "ACHV_PROV_RATCHET", null, { mode: "ratchet", titled: 191 });
-mustGreen("把一条锚点补到可定位（棘轮允许的方向）", null, { mode: "ratchet", titled: 189 });
+mustRed("仅书名的成就锚点越过基线一条", "ACHV_PROV_RATCHET", null, { mode: "ratchet", titled: BASELINE + 1 });
+mustGreen("把一条锚点补到可定位（棘轮允许的方向）", null, { mode: "ratchet", titled: BASELINE - 1 });
 
 /* ⑤ ACHV_STANCE：评价词漏进事实层
  * 用例都打在 impact 上是因为 impact 最容易写顺——「影响与意义」正是形容词藏身的地方。 */
@@ -153,7 +166,7 @@ mustGreen("名词性字段里的专名不误报", (d) => {
   const { rc, out } = run(ROOT);
   ok(rc === 0, `真实语料判绿\n${out.split("\n").slice(-3).join("\n")}`);
   const m = /成就维 w≥4 锚点 (\d+) 条，其中只到书名 (\d+) 条/.exec(out);
-  ok(!!m && Number(m[2]) <= 190, `真实棘轮读数 ${m ? m[2] : "?"} ≤ 基线 190（锚点共 ${m ? m[1] : "?"} 条）`);
+  ok(!!m && Number(m[2]) <= BASELINE, `真实棘轮读数 ${m ? m[2] : "?"} ≤ 基线 ${BASELINE}（锚点共 ${m ? m[1] : "?"} 条）`);
   const s = /事实层评价词越界 (\d+) 处/.exec(out);
   ok(!!s && Number(s[1]) === 0, `真实事实层评价词越界 ${s ? s[1] : "?"} 处`);
 }

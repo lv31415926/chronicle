@@ -61,6 +61,11 @@ jobs:
       - name: validate-dates
         run: node tools/validate-dates.mjs
 
+      # 明史编年层：每条原文必须逐字核在它声称那一卷的底本上（底本带维基文库修订号），
+      # 系年/时锚/类别三个字段必须能从原文现算回来，逐卷账与分片读数必须对得上盘
+      - name: validate-annals
+        run: node tools/validate-annals.mjs
+
       # 前端纯函数与样式实测（对比度、层级、溯源分级、投稿白名单、备案号挂法）
       - name: unit gates
         run: node tools/test-units.mjs
@@ -88,8 +93,8 @@ jobs:
           node tools/test-gates-meta.mjs
           node tools/test-doc-cite.mjs
 
-      # 地理门、视角门、成就线门、故事门、涟漪门、日门自己的可红性：新门未证明能红，等于新增一道会骗人的门
-      - name: geo + frame + achv + story + chain + dates gate redness
+      # 地理门、视角门、成就线门、故事门、涟漪门、日门、编年门自己的可红性：新门未证明能红，等于新增一道会骗人的门
+      - name: geo + frame + achv + story + chain + dates + annals gate redness
         run: |
           node tools/test-geo.mjs
           node tools/test-frame.mjs
@@ -97,3 +102,4 @@ jobs:
           node tools/test-story.mjs
           node tools/test-chain.mjs
           node tools/test-dates.mjs
+          node tools/test-annals.mjs

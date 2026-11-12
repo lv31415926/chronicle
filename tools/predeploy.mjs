@@ -16,7 +16,7 @@ import { fileURLToPath } from "url";
 import { execFileSync } from "child_process";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const GATES = ["validate", "validate-geo", "validate-frame", "validate-achv", "validate-story", "validate-chain", "validate-dates", "test-units", "test-intake", "test-related-candidates", "e2e-static", "test-doc-cite", "test-gates", "test-gates-meta", "test-geo", "test-frame", "test-achv", "test-story", "test-chain", "test-dates"];
+const GATES = ["validate", "validate-geo", "validate-frame", "validate-achv", "validate-story", "validate-chain", "validate-dates", "validate-annals", "test-units", "test-intake", "test-related-candidates", "e2e-static", "test-doc-cite", "test-gates", "test-gates-meta", "test-geo", "test-frame", "test-achv", "test-story", "test-chain", "test-dates", "test-annals"];
 /* clone 之后没有 author 侧脚本，这一组足以判定「少没少文件」；全跑两遍要几分钟。
  * test-intake 有意留在工作树这一侧：它测的是分诊台这个工具，不是发布出去的内容——
  * 纯净目录里少一个 author 侧脚本不该把发布判红，正如它多了也不该让读者多得到什么。
@@ -24,8 +24,10 @@ const GATES = ["validate", "validate-geo", "validate-frame", "validate-achv", "v
  * validate-chain 同理进 staging：涟漪层不写句子，它写的是「因为 A 所以后来有 B」——
  *   这一层一旦漏了一片或凭空多出一个材料名，读者在盘上看不出来，只能在发布出去的内容里被误导。
  * validate-dates 同理进 staging：日层是发布出去的内容，而且它是全站唯一一个「日期从哪来」
- * 能被读者验算的地方——data/dates.js 少了、或被手改过，都只能在这道门上露出来。 */
-const STAGING_GATES = ["validate", "validate-geo", "validate-frame", "validate-achv", "validate-story", "validate-chain", "validate-dates", "e2e-static", "test-units", "test-doc-cite"];
+ * 能被读者验算的地方——data/dates.js 少了、或被手改过，都只能在这道门上露出来。
+ * validate-annals 同理进 staging：编年层把《明史》原文整句发出去，读者能验的唯一一件事
+ * 就是「这句话真在它标的那一卷里」；底本或分片少进索引，这句承诺在发布面上就断了。 */
+const STAGING_GATES = ["validate", "validate-geo", "validate-frame", "validate-achv", "validate-story", "validate-chain", "validate-dates", "validate-annals", "e2e-static", "test-units", "test-doc-cite"];
 const SINGLE_FILE_MAX = 5 * 1024 * 1024;
 
 let fails = 0;

@@ -173,6 +173,12 @@
       if (window.ChronChain && ChronChain.isOpen()) { ChronChain.close(); }
       else if (window.ChronRouter) ChronRouter.go("#/chain");
     });
+    /* 编年同走路由：#/annals?y=1449 是要能分享的链接——把某一年的《明史》原文
+     * 发给别人，比让对方自己拖时间轴再zoom到那一格便宜得多。 */
+    $("btn-annals").addEventListener("click", function () {
+      if (window.ChronAnnals && ChronAnnals.isOpen()) { ChronAnnals.close(); }
+      else if (window.ChronRouter) ChronRouter.go("#/annals");
+    });
     /* 「今天」同走路由：地址栏里的 #/today/11/6 是要能分享的链接。 */
     $("btn-today").addEventListener("click", function () {
       if (window.ChronToday && ChronToday.isOpen()) { ChronToday.close(); }
@@ -401,6 +407,7 @@
     $("btn-story").classList.toggle("on", !!(window.ChronStory && ChronStory.isOpen()));
     $("btn-chain").classList.toggle("on", !!(window.ChronChain && ChronChain.isOpen()));
     $("btn-today").classList.toggle("on", !!(window.ChronToday && ChronToday.isOpen()));
+    $("btn-annals").classList.toggle("on", !!(window.ChronAnnals && ChronAnnals.isOpen()));
     /* 下拉必须跟着状态走：抽屉里的「放宽到全部来源」改的是同一个值，
      * 不同步就会出现「已经放宽了、控件还指着最严那格」。 */
     var pf = $("prov-floor");

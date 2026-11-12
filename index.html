@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="css/atlas.css">
 <link rel="stylesheet" href="css/story.css">
 <link rel="stylesheet" href="css/chain.css">
+<link rel="stylesheet" href="css/annals.css">
 <link rel="stylesheet" href="css/today.css">
 </head>
 <body>
@@ -100,6 +101,7 @@
         <button class="tb-btn" id="btn-frame" title="看点：本站的编辑立场，每条主张都附条目原文与争议">看点</button>
         <button class="tb-btn" id="btn-story" title="小故事：人物故事、朝代趣事。每条都标了性质（史载/笔记异闻/后世附会/出土档案）与底本 (S)">故事</button>
         <button class="tb-btn" id="btn-chain" title="涟漪：大事的余波落在后来的小事上。每一边都标明是「有出处」还是「本站的连接」 (B)">涟漪</button>
+        <button class="tb-btn" id="btn-annals" title="编年：《明史》原文逐句按年月铺开，每条标出卷次与系年来源 (A)">编年</button>
         <button class="tb-btn" id="btn-today" title="历史上的今天：只列条目正文里已写明某月某日的那些事，出处纪日单独标出 (T)">今天</button>
         <button class="tb-btn" id="btn-atlas" title="舆图视图：把当前年代的事件落在海岸线底图上 (M)">舆图</button>
         <button class="tb-btn" id="btn-river" title="把当前筛选铺成全屏长河 (R)">长河视图</button>
@@ -183,6 +185,7 @@
     <tr><td>Enter</td><td>打开当前选中条目的详情</td></tr>
     <tr><td>⌘K / Ctrl+K 或 /</td><td>检索</td></tr>
     <tr><td>R</td><td>打开 / 关闭全屏「长河」梳理视图</td></tr>
+    <tr><td>A</td><td>打开 / 关闭「编年」（《明史》原文逐句）</td></tr>
     <tr><td>M</td><td>打开 / 关闭「舆图」视图</td></tr>
     <tr><td>G</td><td>打开 / 关闭「看点」（本站编辑立场，附原文与争议）</td></tr>
     <tr><td>Shift+Enter（检索面板内）</td><td>把当前检索结果（或面板展示的里程碑）铺成长河</td></tr>
@@ -271,6 +274,24 @@
   <p>深链不需要坐标：<code>#/atlas?year=-100&amp;place=beikal</code>、<code>#/place/xian?year=741</code>、
      <code>#/person/suwu</code>；地名写古称、别名、今名都行，由本站地名表解析。</p>
 
+  <h4>编年：这一层本站一个字没写，所以最怕的是你把它当成已核的事实</h4>
+  <p>顶栏「编年」（或 <kbd>A</kbd>）把《明史》原文逐句按年月铺开。与看点、故事、涟漪那几层不同，
+     那些层的句子是本站写的，这一层的每一句都是底本原句——所以这里的风险不是「编得像不像」，
+     而是<b>读者会不会把史书的记述当成核实过的事</b>。每句末尾都有两个可以当场翻验的标记：
+     <b>卷次</b>（本纪 / 志 / 表 / 列传 + 卷号，点它即只看这一卷）与<b>系年来源</b>——
+     <b>本纪系年</b>指这句自己没写年月、年代是跟着本纪往下排的；<b>句内自标</b>指年月或年号就写在这句里。
+     两者可核的程度不一样，所以界面不给它们同一个写法。类别（兵事 / 灾异 / 丧殁…）按句首关键词派生，
+     <b>只用于筛选，不判真伪</b>。日期那一栏在原文开头已经写了年月或干支时<b>留空</b>——
+     同一句里说两遍是装饰，宁可空着；改元之年的头一行会把该年所有年号都列出来，不只取第一个。</p>
+  <p>分片按年代切、按需取：整部编年切为若干片，只在你要看的那一段才载入，不占首屏。
+     顶上那句「已载入 x/y 片 · n/N 条」是<b>从清单现算</b>的，片数与体积都不写死；没取齐时才多出那颗
+     「载入整部（还差 N 片 约 …）」。唯一的死角是<b>按卷次</b>看：卷次跨片，装载层无法判断第几十卷落在哪一片，
+     这时页面照实说「这一卷不在已载入的片里」并让你载入整部，不会假称「这一卷没有原文」。
+     「随时间轴区间」勾上后本段就真的跟着顶栏区间走；「早 N 年 / 晚 N 年」两头翻页；筛选条上的
+     「清除筛选」只交掉筛选、<b>留住你钉住的那一年</b>。地址形如 <code>#/annals?y=1449</code> 可直接分享。</p>
+  <p>任意一条中国轨详情的「《明史》记这一年」先给三句，其余用「还有 N 条，打开编年看全年」接过去；
+     那一句自己还在载入时，页面说「正在载入」而不是「没有」。抽屉里的「铺成长河」把当前这一段摊成全屏通读。</p>
+
   <h4>数据与口径</h4>
   <p>每条事件带维度、重要度（1–5）、摘要、详情三段（背景/经过/影响）、关键人物、地点、政权与出处。
      公元前 841 年（共和行政）是中国有连续确切纪年之始，此前年代为学界推定值，一律以「~」标注。
@@ -320,6 +341,7 @@
 <script src="js/frame.js"></script>
 <script src="js/story.js"></script>
 <script src="js/chain.js"></script>
+<script src="js/annals.js"></script>
 <script src="js/today.js"></script>
 <script src="js/contribute.js"></script>
 <script src="js/interaction.js"></script>

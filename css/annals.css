@@ -1,0 +1,168 @@
+/* annals.css | 明史编年层：原文抽屉、详情里的编年块、长河里的原文行
+ *
+ * 这一层的版式只服务一件事：让「史书原句」和「本站写的字」一眼分得开。
+ * 所以原文用衬线、字号比界面其它正文大一号、不加粗任何本站写的标签；
+ * 卷次与系年来源用无衬线小字压在句下——它们是路标，不是内容，
+ * 但也不能弱到看不见：看不见出处的那一行，读者就有理由把整段当编的。
+ *
+ * 「本纪系年」与「句内自标」两种系年必须形状不同而不只是深浅不同：
+ * 前者靠上下文连续排年，后者是这句自己写了年月，可核的程度不一样。 */
+
+/* ============ 抽屉骨架 ============ */
+body.an-open .detail { right: 520px; }
+.an-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 520px; max-width: 94vw; z-index: 47;
+  display: flex; flex-direction: column;
+  background: var(--bg-panel); border-left: 1px solid var(--rule); box-shadow: var(--shadow);
+}
+/* 同 chain.css：本类的 display:flex 权重盖过 UA 的 [hidden]，少这一条就关不掉。 */
+.an-drawer[hidden] { display: none; }
+.an-head {
+  flex: 0 0 auto; display: flex; align-items: flex-start; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--rule-soft);
+}
+.an-crumb { flex: 1 1 auto; font: 600 12px/1.4 var(--font-sans); color: var(--ink); }
+.an-stats {
+  margin-top: 3px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  font: 400 10.5px/1.6 var(--font-sans); color: var(--ink-soft);
+}
+.an-stats button {
+  padding: 1px 6px; background: var(--bg-elev); border: 1px solid var(--rule);
+  border-radius: var(--r-sm); color: var(--ink); font: 400 10.5px/1.5 var(--font-sans); cursor: pointer;
+}
+.an-stats .an-fail { color: var(--warn); }
+.an-stats .an-chk { margin-left: auto; white-space: nowrap; }
+.an-tools { display: flex; flex: 0 0 auto; gap: 4px; }
+.an-tools button {
+  /* 不换行：上面那行读数一折行，工具列就被挤窄，「铺成长河」会竖着一字一行，
+   * 看着像按钮坏了；宁可让读数多占一行。 */
+  white-space: nowrap;
+  padding: 4px 8px; background: var(--bg-elev); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: var(--r-sm);
+  font: 400 11px/1 var(--font-sans); cursor: pointer;
+}
+.an-tools button:hover { background: var(--bg-hover); }
+.an-tools button[disabled] { opacity: .55; cursor: progress; }
+.an-filters { flex: 0 0 auto; padding: 8px 12px; border-bottom: 1px solid var(--rule-soft); }
+.an-body { flex: 1 1 auto; overflow: auto; padding: 12px 14px; outline: none; }
+
+.an-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 5px; }
+.an-row:last-child { margin-bottom: 0; }
+.an-lab { font: 600 10px/1.5 var(--font-sans); letter-spacing: .1em; color: var(--ink-faint); margin-right: 2px; }
+.an-pill {
+  padding: 2px 8px; background: none; border: 1px solid var(--rule); border-radius: 999px;
+  color: var(--ink-soft); font: 400 11px/1.6 var(--font-sans); cursor: pointer;
+}
+.an-pill:hover { border-color: var(--ink-faint); color: var(--ink); }
+.an-pill.on { background: var(--bg-hover); border-color: var(--ink-soft); color: var(--ink); }
+.an-pill i { font-style: normal; color: var(--ink-faint); }
+.an-row input[type="search"] {
+  flex: 1 1 140px; min-width: 120px; padding: 3px 7px; background: var(--bg-elev);
+  border: 1px solid var(--rule); border-radius: var(--r-sm);
+  color: var(--ink); font: 400 11.5px/1.5 var(--font-sans);
+}
+.an-row .an-who { font: 400 11px/1.6 var(--font-sans); color: var(--gold-text); }
+.an-row button[data-an-clear] {
+  padding: 2px 8px; background: none; border: 1px dashed var(--rule); border-radius: var(--r-sm);
+  color: var(--ink-soft); font: 400 11px/1.6 var(--font-sans); cursor: pointer;
+}
+.an-bad { color: var(--ink-soft); font: 400 12px/1.7 var(--font-sans); padding: 10px 2px; }
+.an-bad button {
+  margin: 6px 0 0 6px; padding: 3px 9px; background: var(--bg-elev);
+  border: 1px solid var(--rule); border-radius: var(--r-sm);
+  color: var(--ink); font: 400 11px/1.6 var(--font-sans); cursor: pointer;
+}
+.an-nav {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 0 0 10px; padding: 0 0 8px; border-bottom: 1px solid var(--rule-soft);
+  font: 400 10.5px/1.6 var(--font-sans); color: var(--ink-faint);
+}
+.an-nav button {
+  padding: 2px 8px; background: none; border: 1px solid var(--rule); border-radius: var(--r-sm);
+  color: var(--ink-soft); font: 400 11px/1.6 var(--font-sans); cursor: pointer;
+}
+.an-nav button:hover { background: var(--bg-hover); color: var(--ink); }
+
+/* ============ 一年与一句 ============ */
+.an-sec { margin-bottom: 14px; }
+.an-yh {
+  display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px;
+  font: 600 13px/1.5 var(--font-serif); color: var(--ink);
+}
+.an-yh button {
+  padding: 0; background: none; border: 0; border-bottom: 1px solid var(--rule);
+  color: var(--ink); font: 600 14px/1.4 var(--font-serif); cursor: pointer;
+}
+.an-yh button:hover { color: var(--link); border-bottom-color: var(--link); }
+.an-yh .an-reign { font: 400 11px/1.5 var(--font-serif); color: var(--gold-text); }
+.an-yh i { margin-left: auto; font-style: normal; font-family: var(--font-sans); font-size: 10.5px; color: var(--ink-faint); }
+
+.an-node { display: grid; grid-template-columns: 62px 1fr; gap: 0 8px; padding: 5px 0; }
+.an-node + .an-node { border-top: 1px solid var(--rule-soft); }
+.an-when {
+  grid-column: 1; font: 400 11px/1.7 var(--font-serif); color: var(--ink-faint);
+  text-align: right; padding-top: 2px;
+}
+.an-q {
+  grid-column: 2; margin: 0; font: 400 14px/1.85 var(--font-serif); color: var(--ink);
+  /* 原文不截断，长句靠断行；掐头去尾等于又变成转述。 */
+  overflow-wrap: anywhere;
+}
+.an-meta {
+  grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+  margin-top: 3px; font: 400 10.5px/1.6 var(--font-sans); color: var(--ink-faint);
+}
+.an-meta .an-juan {
+  padding: 0; background: none; border: 0; border-bottom: 1px dotted var(--rule);
+  color: var(--ink-soft); font: 400 10.5px/1.6 var(--font-sans); cursor: pointer;
+}
+.an-meta .an-juan:hover { color: var(--link); border-bottom-color: var(--link); }
+/* 部类只靠左边一条线分型：志与列传的句子混在本纪里读起来没有区别，
+ * 而这三者可信的程度与用途完全不同。 */
+.an-node.an-ji { border-left: 2px solid var(--cn); padding-left: 7px; }
+.an-node.an-zhi { border-left: 2px solid var(--gold); padding-left: 7px; }
+.an-node.an-zhuan { border-left: 2px solid var(--wd); padding-left: 7px; }
+.an-node.an-biao { border-left: 2px solid var(--ink-faint); padding-left: 7px; }
+/* 本纪的句子多数以太干支起头（「乙巳，免浙江银课」），日期柱里再抄一遍就成了
+ * 「乙巳乙巳」。whenLabel 于是把已经写在原文开头的锚让出去；让出去之后那一格是空的，
+ * 62px 的空槽会把整行推右、看着像坏了，所以这种行改单栏。 */
+.an-node.an-nolabel, .detail .para .an-node.an-nolabel { grid-template-columns: 1fr; }
+.an-node.an-nolabel .an-when { display: none; }
+.an-node.an-nolabel .an-q, .an-node.an-nolabel .an-meta { grid-column: 1; }
+/* 两种系年用线型分（虚线＝靠本纪连续排下来的），不靠深浅分。 */
+.an-anchor { padding: 0 5px; border: 1px dashed var(--rule); border-radius: var(--r-sm); color: var(--ink-soft); }
+.an-anchor.an-a-s { border-style: solid; }
+
+/* ============ 详情抽屉里的编年块 ============ */
+.detail .para .an-node { grid-template-columns: 56px 1fr; padding: 4px 0; }
+.detail .para .an-q { font-size: 13.5px; line-height: 1.8; }
+.detail .para .an-go {
+  margin-top: 5px; padding: 3px 9px; background: var(--bg-elev);
+  border: 1px solid var(--rule); border-radius: var(--r-sm);
+  color: var(--ink); font: 400 11px/1.6 var(--font-sans); cursor: pointer;
+}
+/* 这一段是这一层的内容骨架，不是免责声明：它写的是「史文如此写」的边界，
+ * 所以不折叠、不淡化到读不清。 */
+.detail .para .an-note {
+  margin: 7px 0 0; padding-left: 8px; border-left: 2px solid var(--rule);
+  color: var(--ink-soft); font-size: 11.5px; line-height: 1.75;
+}
+.detail .para .an-wait p { color: var(--ink-faint); font-size: 11.5px; }
+
+/* ============ 长河里的原文行 ============ */
+/* rv-it 的第二列只放一个维度字形（20px），这里放的是「本纪/志/列传」三个字，
+ * 沿用原列宽会把部类名挤成一列竖字，所以整行重排一次。 */
+.rv-it.rv-an { grid-template-columns: 56px 44px 1fr; }
+.rv-an .an-q { font: 400 14px/1.85 var(--font-serif); color: var(--ink); }
+.rv-an .an-g { font: 400 11px/1.5 var(--font-sans); color: var(--ink-soft); text-align: left; }
+
+/* ============ 窄屏：抽屉改下半屏，详情回到满宽 ============ */
+@media (max-width: 720px) {
+  .an-drawer { width: 100%; max-width: none; top: auto; height: 76vh; border-left: 0; border-top: 1px solid var(--rule); }
+  body.an-open .detail { right: 0; }
+  .an-head { padding: 8px 10px; }
+  .an-body { padding: 10px; }
+  .an-node { grid-template-columns: 52px 1fr; }
+  .an-q { font-size: 13.5px; }
+  .rv-it.rv-an { grid-template-columns: 44px 40px 1fr; }
+}

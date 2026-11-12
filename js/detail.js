@@ -25,7 +25,7 @@
       '<div class="d-body" id="d-body" tabindex="0"></div>';
     document.body.appendChild(panel);
     panel.addEventListener("click", function (e) {
-      var b = e.target.closest("[data-act],[data-ev],[data-year],[data-dim],[data-tag],[data-tl],[data-tk],[data-st],[data-st-person],[data-st-loadall],[data-ch],[data-ch-loadall]");
+      var b = e.target.closest("[data-act],[data-ev],[data-year],[data-dim],[data-tag],[data-tl],[data-tk],[data-st],[data-st-person],[data-st-loadall],[data-ch],[data-ch-loadall],[data-an-year],[data-an-juan]");
       if (!b) return;
       var act = b.getAttribute("data-act");
       if (act === "close") { close(); history.back && location.hash && (location.hash = "#/timeline"); return; }
@@ -43,6 +43,8 @@
       if (window.ChronStory && ChronStory.handleDetailClick(b)) return;
       /* 涟漪卡上的 ch-* 同样归涟漪层：data-ch 要开的是抽屉里的某一条链。 */
       if (window.ChronChain && ChronChain.handleDetailClick(b)) return;
+      /* 编年原文行上的 an-* 归编年层：点卷次开的是「只看这一卷」，点年份开的是全年编年。 */
+      if (window.ChronAnnals && ChronAnnals.handleDetailClick(b)) return;
     });
     /* 面板只在这里建一次，订阅也只挂一次。
      * 重画判据向 state.js 的 filterChanged 要：它恰好等于 passesFilter 读到的那几个键。
@@ -132,6 +134,10 @@
     /* 涟漪挂在小故事之后：小故事说的是「当时那人手上是什么情形」，涟漪说的是
      * 「这件事后来牵动了什么」，顺序反了就成了先讲余波再讲本体。同样懒取、缺席不画。 */
     if (window.ChronChain) html += ChronChain.block(ev);
+
+    /* 明史编年挂在涟漪之后、同年对照之前：这一层给的是史料原文而不是本站转述，
+     * 读者读完本站写的几条，再看当年那句原话是怎么写的。同样懒取、缺席不画。 */
+    if (window.ChronAnnals) html += ChronAnnals.block(ev);
 
     /* 同年对照 */
     html += compareBlock(ev);

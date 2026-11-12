@@ -17,7 +17,12 @@
   /* ---------- 取数 ---------- */
   function collect() {
     var r = S.get().range, out = [], i, e;
-    if (source && source.ids) {
+    if (source && source.annals) {
+      /* 编年原文铺长河：节点不是条目，没有 weight/dim/track，只有年与句。
+       * 这里包一层而不是改 schema——密层的价值正是「同一年的原文并排」，
+       * 把它冒充成条目会把权重、维度、溯源三套筛选全喂进空值。 */
+      out = source.annals.map(function (n) { return { year: n.y, _an: n }; });
+    } else if (source && source.ids) {
       for (i = 0; i < source.ids.length; i++) {
         e = L.eventById(source.ids[i]);
         if (e) out.push(e);
@@ -29,9 +34,14 @@
     }
     out = out.filter(function (e) { return e.year >= r.from && e.year <= r.to; });
     if (onlyFilter) out = out.filter(S.passesFilter);
-    /* 同一事件可能既在检索命中又在链条里：按 id 去重，否则长河里会出现重复行 */
+    /* 同一事件可能既在检索命中又在链条里：按 id 去重，否则长河里会出现重复行。
+     * 编年节点没有 ev id，用它自己的编号——写成 e.id 会让全部原文只剩第一条
+     * （undefined 也是键，第二条起就被当成重复）。 */
     var seen = {};
-    out = out.filter(function (e) { if (seen[e.id]) return false; seen[e.id] = 1; return true; });
+    out = out.filter(function (e) {
+      var k = e._an ? "an|" + e._an.i : e.id;
+      if (seen[k]) return false; seen[k] = 1; return true;
+    });
     out.sort(sort === "weight"
       ? function (a, b) { return b.weight - a.weight || a.year - b.year; }
       : function (a, b) { return a.year - b.year || b.weight - a.weight; });
@@ -78,7 +88,28 @@
   }
 
   /* ---------- 渲染 ---------- */
+  /* 编年一行：年月日标签 + 原文整句 + 卷次与系年来源。
+   * 原文不截断——这一层卖的就是「史书到底怎么写的」，掐头去尾等于又变成转述。 */
+  function annalsRow(n) {
+    var A = window.ChronAnnals;
+    return '<li class="rv-it rv-an an-' + esc(n.s) + '">' +
+      '<button class="rv-y" data-an-year="' + esc(n.y) + '" title="打开这一年的编年">' +
+        esc(T.formatYearShort(n.y)) + "</button>" +
+      '<span class="rv-g an-g">' + esc((A && A.SECTION_LABEL[n.s]) || n.s) + "</span>" +
+      '<div class="rv-c">' +
+        '<div class="rv-t">' + esc(A ? A.whenLabel(n) : "") +
+          '<span class="rv-w">' + esc((A && A.KIND_LABEL[n.k]) || n.k) + "</span></div>" +
+        '<p class="rv-s an-q">' + esc(n.q) + "</p>" +
+        '<div class="rv-m"><span>明史卷' + esc(n.j) + "</span>" +
+          "<span>" + esc(n.e || "") + "</span>" +
+          '<span class="an-anchor an-a-' + esc(n.a) + '" title="' +
+            (n.a === "b" ? "这句自己没写年月，年代跟着本纪排" : "年月或年号写在这句里") + '">' +
+            (n.a === "b" ? "本纪系年" : "句内自标") + "</span></div>" +
+      "</div></li>";
+  }
+
   function itemRow(e) {
+    if (e._an) return annalsRow(e._an);
     var d = M.dimensions[e.dim], tk = M.tracks[e.track], era = T.eraOf(e.track, e.year);
     return '<li class="rv-it" data-ev="' + esc(e.id) + '">' +
       '<button class="rv-y" data-fly="' + esc(e.id) + '" title="在时间轴上定位">' +
@@ -101,16 +132,20 @@
   function render() {
     if (!root) return;
     var items = collect(), r = S.get().range, secs = sectionize(items), st = L.stats();
+    var isAn = items.length > 0 && !!items[0]._an;
     var cn = items.filter(function (e) { return e.track === "cn"; }).length;
 
     var srcName = source && source.label ? source.label : "当前筛选";
-    /* 整条长河的溯源构成：逐节点看标签太累，读者要的是「我接下来读的这一片凭什么」。 */
-    var ps = PV ? PV.stats(items) : null;
+    /* 整条长河的溯源构成：逐节点看标签太累，读者要的是「我接下来读的这一片凭什么」。
+     * 编年原文没有本站的溯源等级——它本身就是底本，硬套 PV 会把「原文」显示成
+     * 「仅书名」那一档，等于用一个不相关的尺子量它，所以这一行换成卷次与部类构成。 */
+    var ps = (PV && !isAn) ? PV.stats(items) : null;
     var pvSum = ps ? PV.TIERS.filter(function (t) { return ps[t.key] > 0; })
       .map(function (t) { return t.label + " " + ps[t.key]; }).join(" · ") : "";
     statsEl.innerHTML = "<b>" + items.length + "</b> 个节点 · " +
       "<span>" + esc(T.formatYear(r.from)) + " — " + esc(T.formatYear(r.to)) + "</span>" +
-      "<span>中国 " + cn + " / 世界 " + (items.length - cn) + "</span>" +
+      (isAn ? "<span>《明史》原文 · 逐字引自底本</span>"
+            : "<span>中国 " + cn + " / 世界 " + (items.length - cn) + "</span>") +
       (pvSum ? '<span class="rv-pv" title="' + esc(pvSum) + '">溯源：' + esc(pvSum) + "</span>" : "") +
       '<span class="rv-src">来源：「' + esc(srcName) + "」</span>" +
       (st.loadedChunks < st.totalChunks
@@ -183,6 +218,8 @@
         if (ev0) { S.patch({ selectedYear: ev0.year }); ChronTimeline.flyToYear(ev0.year, 30); }
         return;
       }
+      var an = e.target.closest("[data-an-year]");
+      if (an) { if (window.ChronAnnals) ChronAnnals.openYear(an.getAttribute("data-an-year")); return; }
       var it = e.target.closest("[data-ev]");
       if (it && window.ChronDetail) ChronDetail.openEvent(it.getAttribute("data-ev"));
     });
@@ -205,7 +242,15 @@
   function open(opts) {
     ensure();
     source = opts || {};
-    onlyFilter = !(source.ids || source.query);
+    /* 编年原文不是条目：维度/权重/溯源三套筛选量的是它身上没有的字段，「按重要度」也是。
+     * 实测带着这两颗控件进来，167 条原文被 S.passesFilter 筛成 0 条——
+     * 所以这一路把控件收掉，而不是留着让读者以为「我筛过了所以没了」。 */
+    var an = !!source.annals;
+    onlyFilter = !an && !(source.ids || source.query);
+    root.querySelector(".rv-chk").style.display = an ? "none" : "";
+    var sortBtn = root.querySelector("#rv-sort");
+    sortBtn.style.display = an ? "none" : "";
+    if (an) { sort = "year"; sortBtn.textContent = "排序：时间"; }
     root.querySelector("#rv-filter").checked = onlyFilter;
     root.querySelector("#rv-title").textContent = source.label ? source.label : "时间长河 · 全览";
     root.hidden = false;

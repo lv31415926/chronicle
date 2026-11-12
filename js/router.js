@@ -2,6 +2,7 @@
  *                                  #/river/<q>  #/place/<key>?year=  #/person/<key>  #/atlas?year=&place=&journey=&embed=
  *                                  #/story  #/story/<id>  #/story?person=<name>
  *                                  #/chain  #/chain/<id>
+ *                                  #/annals?y=&juan=&section=&q=
  *                                  #/today  #/today/<m>/<d>
  */
 (function () {
@@ -39,6 +40,10 @@
     if (name === "atlas") return { name: "atlas", params: { year: qs.year, place: qs.place, journey: qs.journey, embed: !!qs.embed } };
     if (name === "story") return { name: "story", params: { id: seg[1] ? decodeURIComponent(seg[1]) : "", person: qs.person } };
     if (name === "chain") return { name: "chain", params: { id: seg[1] ? decodeURIComponent(seg[1]) : "" } };
+    /* 地址里的键是短的（?y=），交给 open() 的键是它文档里那套（year）：
+     * 两边各叫各的，实测结果是 y=1449 被当成「没给年份」，装载层于是按整段
+     * 明史去取片——一次深链拉 1.4 MB，正是事件层为慢链路专门改掉的那件事。 */
+    if (name === "annals") return { name: "annals", params: { year: qs.y, juan: qs.juan, section: qs.section, q: qs.q } };
     if (name === "today") {
       /* 月日存不存在不在这里判。判它要一张各月天数表，而这张表全站只有一份——盘上的 mdays，
        * 由 date-lib 生成、ChronToday 读它并当着读者说明。路由此前自己抄了一份「二月 29 天、其余 31 天」，
@@ -108,6 +113,7 @@
       if (window.ChronPlaces) ChronPlaces.close();
       if (window.ChronToday) ChronToday.close();
       if (window.ChronChain) ChronChain.close();
+      if (window.ChronAnnals) ChronAnnals.close();
       if (window.ChronStory) ChronStory.open({ story: r.params.id, person: r.params.person });
     } else if (r.name === "chain") {
       /* 涟漪抽屉与故事抽屉同层同宽，同时开着只剩最上面那个还点得动：
@@ -116,9 +122,20 @@
       if (window.ChronPlaces) ChronPlaces.close();
       if (window.ChronToday) ChronToday.close();
       if (window.ChronStory) ChronStory.close();
+      if (window.ChronAnnals) ChronAnnals.close();
       /* 只走 open()，不走 ChronChain.openChain()：后者会回头改 hash，
        * 而 hashchange 又进到本分支，于是路由和抽屉互相把对方再叫一次。 */
       if (window.ChronChain) ChronChain.open({ chain: r.params.id });
+    } else if (r.name === "annals") {
+      /* 编年与其余抽屉同层，同时开着只剩最上面那个还点得动：进这一分支先收掉别的。
+       * 只走 open()，不走 ChronAnnals.openYear()——后者会回头改 hash，
+       * 而 hashchange 又进到本分支，于是路由和抽屉互相把对方再叫一次。 */
+      if (window.ChronAtlas) ChronAtlas.close();
+      if (window.ChronPlaces) ChronPlaces.close();
+      if (window.ChronStory) ChronStory.close();
+      if (window.ChronChain) ChronChain.close();
+      if (window.ChronToday) ChronToday.close();
+      if (window.ChronAnnals) ChronAnnals.open(r.params);
     } else if (r.name === "today") {
       /* 同上：「今天」也是抽屉，舆图和地点页压着它。
        * 没给月日就是「今天本身」，由 ChronToday 自己按本机日期定位。 */
@@ -126,6 +143,7 @@
       if (window.ChronPlaces) ChronPlaces.close();
       if (window.ChronStory) ChronStory.close();
       if (window.ChronChain) ChronChain.close();
+      if (window.ChronAnnals) ChronAnnals.close();
       if (window.ChronToday) ChronToday.open(r.params.m ? { m: r.params.m, d: r.params.d } : {});
     } else {
       /* 回到时间轴时把舆图与地点页收掉：三个全屏层叠在一起，读者只会看见最上面那个 */
@@ -134,6 +152,7 @@
       if (window.ChronChain) ChronChain.close();
       if (window.ChronStory) ChronStory.close();
       if (window.ChronToday) ChronToday.close();
+      if (window.ChronAnnals) ChronAnnals.close();
     }
   }
 

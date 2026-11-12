@@ -1221,8 +1221,10 @@ const CASES = [
     label: "切回时间轴不收今天抽屉（router 兜底分支漏一层）",
     file: "js/router.js",
     runner: "tools/test-dates.mjs",
-    from: "      if (window.ChronStory) ChronStory.close();\n      if (window.ChronToday) ChronToday.close();\n    }",
-    to: "      if (window.ChronStory) ChronStory.close();\n    }",
+    /* 锚串跟着兜底分支走：2026-11-10 编年抽屉接进来时这里多了一行 ChronAnnals.close()，
+     * 锚串没跟上就报「变异锚串没匹配上」——那是本用例自己失效，不是被检代码出了问题。 */
+    from: "      if (window.ChronStory) ChronStory.close();\n      if (window.ChronToday) ChronToday.close();\n      if (window.ChronAnnals) ChronAnnals.close();\n    }",
+    to: "      if (window.ChronStory) ChronStory.close();\n      if (window.ChronAnnals) ChronAnnals.close();\n    }",
     name: "路由的兜底分支（切回时间轴）把今天抽屉一起收掉",
   },
   /* 页脚「空 N 天」的三个判据：旧写法在界面里自己数格子，把 4/31、6/31、9/31、11/31
@@ -1543,10 +1545,37 @@ const CASES = [
     to: '      window.ChronRouter.go("#/river");',
     name: "落到长河之前要先读地址栏",
   },
+  /* ---- 明史编年层：juanNum 的汉字条例法 ----
+   * 卷题是读者拿去翻页的那串字，维基文库把 145 写成「一百四五」、201 写成「二百〇一」，
+   * juanNum 的四条例法若只在一支上有测试，另三支改坏也没人看见。
+   * 夹具（test-annals）里 45/145/201/218/245/305 六卷按页上原样登记，所以这里改坏解析器
+   * 会让门在基准数据上就判红，九条边界用例跟着全部失败——不靠生产盘上的 330 卷才能露出来。 */
+  {
+    label: "juanNum 的「省十」例法写反（一百四五读成一五四）",
+    file: "tools/mingshi-lib.mjs",
+    runner: "tools/test-annals.mjs",
+    from: "  return ds.length === 2 ? total + ds[0] * 10 + ds[1] : null;",
+    to: "  return ds.length === 2 ? total + ds[0] + ds[1] * 10 : null;",
+    name: "卷题三种合法形状各自判绿",
+  },
+  {
+    label: "juanNum 不认〇/零占位（二百〇一直接判死）",
+    file: "tools/mingshi-lib.mjs",
+    runner: "tools/test-annals.mjs",
+    from: "  if (zm) return total + CN[zm[1]];",
+    to: "  if (zm) return null;",
+    name: "卷题三种合法形状各自判绿",
+  },
 ];
 
 let ok = 0;
-for (const c of CASES) {
+/* META_ONLY=子串：只跑 label 含该串的用例。整批每一条都要重跑一遍对应的自审器（约 1 分钟/条，
+   全批以小时计；条数不写在这里，收尾行按 CASES 实数报），改一条门时无差别全跑等于不验；
+   留这个开关是为了能当场复跑受影响的那两三条。全量仍由 predeploy/CI 负责。 */
+const ONLY = process.env.META_ONLY;
+const CASES_RUN = ONLY ? CASES.filter((c) => c.label.includes(ONLY)) : CASES;
+if (ONLY) console.log(`META_ONLY=「${ONLY}」：${CASES_RUN.length}/${CASES.length} 条`);
+for (const c of CASES_RUN) {
   const dir = fresh();
   const p = path.join(dir, c.file);
   const src = fs.readFileSync(p, "utf8");
@@ -1569,7 +1598,7 @@ for (const c of CASES) {
   console.log(`${good ? "✅" : "✗"} ${c.label.padEnd(34)} rc=${code} 点名「${c.name}」=${named}`);
   if (good) ok++;
 }
-console.log(`\n${ok}/${CASES.length} 个死门被对应的自审器抓到`);
-if (ok === CASES.length) fs.rmSync(TMP, { recursive: true, force: true });
+console.log(`\n${ok}/${CASES_RUN.length} 个死门被对应的自审器抓到${ONLY ? `（META_ONLY 局部跑，不代表全批 ${CASES.length} 条通过）` : ""}`);
+if (ok === CASES_RUN.length) fs.rmSync(TMP, { recursive: true, force: true });
 else console.log(`现场保留于 ${TMP}`);
-process.exit(ok === CASES.length ? 0 : 1);
+process.exit(ok === CASES_RUN.length ? 0 : 1);

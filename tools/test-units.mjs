@@ -2484,6 +2484,436 @@ eq(/^const (MANGLED|QRUN)\s*=/m.test(VAL_SRC), false, "validate.mjs 内无第二
   }
 }
 
+/* ============ 明史编年层读者面：取片范围、日期柱、地址栏、长河密层 ============
+ * 这一段在垫片里实跑 js/annals.js 与 js/river.js，不数字符串。
+ * 本层 2026-11-09 那六个缺陷全部是浏览器里量出来的——深链把整层 22 片 1.4 MB 拉回、
+ * 日期柱把原文开头再抄一遍（实测 273 条里 143 条）、改元之年只挂前一任年号、
+ * 有结果时无从清除筛选、翻页后地址栏还停在旧年、「铺成长河」把 167 条原文筛成 0 行——
+ * 源码 regex 一条也抓不住：写法可以照旧，语义已经错了。
+ * 所以每条判据后面再跟一次「把那个分支阉掉，同一套夹具重跑」：
+ * 断言若对着坏代码仍然判绿，它就是在空转，这一层吃的教训正是「回执比实况绿」。 */
+{
+  const annalsSrc = fs.readFileSync(path.join(ROOT, "js/annals.js"), "utf8");
+  const riverSrc = fs.readFileSync(path.join(ROOT, "js/river.js"), "utf8");
+  const DIR = "data/annals/";
+  const esc2 = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  /* 抽屉里的动作大多走 Promise（取片→重画），断言前要让这一串微任务跑完 */
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  function fakeEl() {
+    const el = {
+      style: {}, attrs: {}, child: {}, on: {}, className: "", id: "",
+      innerHTML: "", textContent: "", value: "", checked: false, disabled: false,
+      scrollTop: 0, parentNode: null, activeElement: null,
+      classList: { add() {}, remove() {}, toggle() {} },
+      setAttribute(k, v) { el.attrs[k] = String(v); },
+      getAttribute(k) { return k in el.attrs ? el.attrs[k] : null; },
+      hasAttribute(k) { return k in el.attrs; },
+      addEventListener(t, fn) { (el.on[t] || (el.on[t] = [])).push(fn); },
+      appendChild(c) { c.parentNode = el; },
+      removeChild(c) { c.parentNode = null; },
+      focus() {}, setSelectionRange() {}, closest() { return null; },
+      querySelector(sel) { return el.child[sel] || (el.child[sel] = fakeEl()); },
+    };
+    return el;
+  }
+
+  /* 抽屉自己那份状态：range 用夹具尺度，subscribe 保留真语义（谁注册、改哪个键会回调） */
+  function fakeState(from, to) {
+    const st = { range: { from, to }, selectedId: "", provFloor: 0 };
+    const subs = [];
+    return {
+      get: () => st,
+      patch(o) { const ch = {}; for (const k in o) { st[k] = o[k]; ch[k] = true; } subs.forEach((f) => f(st, ch)); },
+      subscribe(f) { subs.push(f); },
+      passesFilter: () => true,
+    };
+  }
+
+  /* 夹具分片：1272—1644 同真清单的段，六档四十年 × 纪/志 = 12 片，每年一条 */
+  const FIX = (() => {
+    const GZ = ["甲子", "乙巳", "丙午", "丁未", "戊申"];
+    const chunks = [], store = {};
+    let i = 0;
+    for (let start = 1280; start < 1520; start += 40) {
+      for (const s of ["ji", "zhi"]) {
+        const id = s + "-" + start, arr = [];
+        for (let y = start; y <= start + 39; y++) {
+          const g = GZ[i % GZ.length];
+          arr.push({ i: "n" + (++i), y, m: 3, L: 0, g, w: 0, j: s === "ji" ? 25 : 68, s,
+            a: s === "ji" ? "b" : "s", e: y < 1450 ? "正统十四年" : "景泰元年", k: "bing",
+            q: g + "，" + (y < 1450 ? "京师议定营建之制" : "南京兵部条上守备之策") + "。" });
+        }
+        chunks.push({ id, file: "annals-" + id + ".js", count: arr.length, bytes: 5000, yearFrom: start, yearTo: start + 39 });
+        store[id] = arr;
+      }
+    }
+    const manifest = { chunks, census: { nodes: i, years: 372, from: 1272, to: 1644,
+      bySection: { ji: 360, zhi: 360 }, byKind: { bing: i }, byAnchor: { b: 360, s: 360 }, perJuan: {} } };
+    const files = { [DIR + "manifest.js"]: "window.__CHRONICLE_ANNALS_MANIFEST = " + JSON.stringify(manifest) + ";" };
+    for (const c of chunks)
+      files[DIR + c.file] = "window.__CHRONICLE_ANNALS = Object.assign(window.__CHRONICLE_ANNALS || {}, " +
+        JSON.stringify({ [c.id]: store[c.id] }) + ");";
+    return { files, chunks, manifest };
+  })();
+
+  /* 真盘上的分片按需读：一次深链该取几片，这里就是几片 */
+  const realFiles = (src) => {
+    const p = path.join(ROOT, src);
+    return fs.existsSync(p) ? fs.readFileSync(p, "utf8") : undefined;
+  };
+
+  function annalsEnv(src, files, state) {
+    const reqs = [], gos = [], flies = [], created = [];
+    const doc = fakeEl();
+    doc.createElement = () => { const e = fakeEl(); created.push(e); return e; };
+    doc.body = fakeEl();
+    doc.head = {
+      appendChild(s) {
+        s.parentNode = doc.head; reqs.push(s.src);
+        const code = typeof files === "function" ? files(s.src) : files[s.src];
+        if (code === undefined) { if (s.onerror) s.onerror(); return; }
+        try { new Function("window", code)(win); } catch (e) { /* 与浏览器同：坏脚本也算 onload */ }
+        if (s.onload) s.onload();
+      },
+      removeChild(s) { s.parentNode = null; },
+    };
+    const win = {
+      addEventListener() {}, removeEventListener() {}, dispatchEvent() {},
+      console: { error() {}, log() {}, warn() {} },
+      ChronLoader: { injectTimeout: 30000, firstTryTimeout: 18000 },
+      ChronTime: T,
+      ChronState: state || fakeState(-3000, 2026),
+      ChronRiver: { open(o) { win.__river = o; }, close() {}, isOpen() { return false; } },
+      ChronRouter: { go(h) { gos.push(h); }, resetHash() {}, parse: () => ({ name: "timeline", params: {} }) },
+      ChronTimeline: { flyToYear(y) { flies.push(Number(y)); }, invalidate() {} },
+      ChronDetail: { isOpen: () => false, mode: "event", openEvent() {} },
+    };
+    win.window = win;
+    /* 浏览器里 window.X 同时是全局名 X，annals.js 也这么混用（`window.ChronDetail` 判完直接写
+     * `ChronDetail.isOpen()`）；沙箱没有这层自动全局，所以按同一份窗口把裸名补进去——
+     * 补不上就会把一个只在异步回调里跑的引用错误当成缺陷。 */
+    new Function("window", "document", "setTimeout", "clearTimeout", "location", "Event", "CustomEvent",
+      "ChronRiver", "ChronRouter", "ChronTimeline", "ChronDetail", src)(
+      win, doc, setTimeout, clearTimeout, { hash: "#/annals?y=1449" },
+      function (t) { this.type = t; },
+      function (t, o) { this.type = t; Object.assign(this, o || {}); },
+      win.ChronRiver, win.ChronRouter, win.ChronTimeline, win.ChronDetail);
+    win.__reqs = reqs; win.__gos = gos; win.__flies = flies;
+    Object.defineProperty(win, "__panel", { get: () => created.find((e) => e.id === "annals") });
+    win.__chunksReq = () => reqs.filter((r) => r !== DIR + "manifest.js");
+    return win;
+  }
+
+  /* 抽屉的点击是事件委托：夹具要模拟的正是「读者按了带某个 data-* 的那颗」 */
+  function fireClick(panel, attrs) {
+    const t = fakeEl();
+    for (const k in attrs) t.attrs[k] = String(attrs[k]);
+    t.closest = () => t;
+    panel.on.click[0]({ target: t });
+    return t;
+  }
+
+  /* ---------- A. 开抽屉取几片：从「这一屏铺哪几年」来，不从顶栏区间来 ---------- */
+  const winA = annalsEnv(annalsSrc, FIX.files);
+  const AN = winA.ChronAnnals;
+  ok([AN.whenLabel, AN.yearHead, AN.rangeShown, AN.open, AN.block, AN.card].every((f) => typeof f === "function"),
+     "annals.js 导出了读者面判据要调的那几个函数（导不到=下面每一条都在空转）");
+  await AN.open({ year: 1449 });
+  eq(AN.rangeShown().join("-"), "1449-1454", "view.year=1449 时这一屏铺 1449—1454（YEAR_WINDOW 的落点）");
+  eq(winA.__chunksReq().length, 2,
+     `开抽屉只取这一屏要铺的片：夹具 12 片，实取 ${winA.__chunksReq().length} 片（顶栏区间是那五千年的整段）`);
+  eq(winA.__reqs.length, 3, "第一次开抽屉的请求 = 清单 + 2 片（多一片就是又在按层取）");
+  {
+    ok(annalsSrc.includes("loadManifest().then(reloadWindow)"),
+       "变异靶在场：open() 走 reloadWindow（写法一改，上面那条就会变成空转，这里先钉住）");
+    const winN = annalsEnv(annalsSrc.replace("loadManifest().then(reloadWindow)", "loadManifest().then(ensureAll)"), FIX.files);
+    await winN.ChronAnnals.open({ year: 1449 });
+    ok(winN.__chunksReq().length > 2,
+       `阉掉 reloadWindow 后同一动作取 ${winN.__chunksReq().length} 片——上一条判据确实能红（不是恒绿）`);
+  }
+
+  /* ---------- B. 深链：地址里的键与 open() 读的键必须同名，且只拉这一段 ---------- */
+  const winR = { addEventListener() {}, dispatchEvent() {}, location: { hash: "" } };
+  winR.window = winR;
+  new Function("window", "document", fs.readFileSync(path.join(ROOT, "js/router.js"), "utf8"))(winR, fakeEl());
+  const dl = winR.ChronRouter.parse("#/annals?y=1449").params;
+  eq(dl.year, "1449", "路由把 ?y= 交成 open() 文档里那个键 year（实测键名 " + Object.keys(dl).join(",") + "）");
+  {
+    const openBody = annalsSrc.slice(annalsSrc.indexOf("function open(opts)"), annalsSrc.indexOf("function openYear"));
+    const reads = new Set([...openBody.matchAll(/opts\.([a-zA-Z]+)/g)].map((m) => m[1]));
+    ok(openBody.length > 100 && reads.size >= 4 && Object.keys(dl).length >= 4,
+       `两侧都解析得到：open() 读 ${reads.size} 个键、路由交出 ${Object.keys(dl).length} 个键（任一侧取空=下面的对账在空转）`);
+    eq(Object.keys(dl).filter((k) => !reads.has(k)).join(","), "",
+       "路由交出的每个键都在 open() 里被读走（漏一个键=那条深链参数是装饰，读者以为筛了）");
+  }
+  const manReal = JSON.parse(/window\.__CHRONICLE_ANNALS_MANIFEST\s*=\s*(\{[\s\S]*\});/.exec(
+    realFiles(DIR + "manifest.js"))[1]);
+  const winB = annalsEnv(annalsSrc, realFiles);
+  const AB = winB.ChronAnnals;
+  await AB.open(dl);
+  {
+    const got = winB.__chunksReq();
+    const need = manReal.chunks.filter((c) => c.yearFrom <= 1454 && c.yearTo >= 1449);
+    eq(got.length, need.length,
+       `真数据的一次深链取 ${got.length} 片，与「和这一屏的年代有交集」的 ${need.length} 片相等（清单共 ${manReal.chunks.length} 片）`);
+    ok(got.length < manReal.chunks.length, "深链没有把整层取回（曾经这里是 22/22、1.4 MB）");
+    ok(got.some((g) => g.includes("ji-")), `取到的片里确有本纪那一片（实取 ${got.map((g) => g.split("/").pop()).join(",")}）`);
+  }
+  const limB = AB.rangeShown();
+  const nodesB = AB.nodesIn(limB[0], limB[1]);
+  ok(nodesB.length >= 200, `这一屏在真数据上有 ${nodesB.length} 条可测（少于 200=下面的日期柱判据射程退化）`);
+
+  /* ---------- C. 日期柱：只写原文里没有的东西 ---------- */
+  {
+    const dup = nodesB.filter((n) => { const l = AB.whenLabel(n); return l && n.q.indexOf(l) === 0; });
+    eq(dup.length, 0, `日期柱不重述原文开头（实测 ${dup.length} 条会拼成「乙巳乙巳」；本层底线是原文一字不改，所以让位的是柱子）`);
+    const yieldN = nodesB.filter((n) => AB.whenLabel(n) === "" && (n.m || n.g)).length;
+    ok(yieldN >= 30, `实测 ${yieldN} 条把柱子让给了原文（为 0=上一条只是在空转，重复根本没被量到）`);
+    const bare = nodesB.filter((n) => !n.m && !n.g && !n.w);
+    ok(bare.length > 0 ? bare.every((n) => AB.whenLabel(n) === "年月未记") : true,
+       `「年月未记」只说给真的没有锚的条目（这一屏 ${bare.length} 条如此）`);
+    const shiNian = nodesB.filter((n) => n.w);
+    eq(shiNian.every((n) => ["", "是年"].includes(AB.whenLabel(n))), true,
+       `「是年」条目不会同时挂月份（这一屏 ${shiNian.length} 条）`);
+    {
+      const neutered = annalsSrc.replace("if (n.g && q.indexOf(n.g) !== 0 && !(mo && q.indexOf(mo + n.g) === 0)) s += n.g;",
+        "if (n.g) s += n.g;");
+      ok(neutered !== annalsSrc, "干支让位那句变异靶在场");
+      const wN = annalsEnv(neutered, realFiles);
+      await wN.ChronAnnals.open(dl);
+      const nn = wN.ChronAnnals.nodesIn(wN.ChronAnnals.rangeShown()[0], wN.ChronAnnals.rangeShown()[1]);
+      const d2 = nn.filter((n) => { const l = wN.ChronAnnals.whenLabel(n); return l && n.q.indexOf(l) === 0; });
+      ok(d2.length > 30, `阉掉让位分支后实测 ${d2.length} 条重复——上面那条 dup===0 是真门，不是恰好为空`);
+    }
+    {
+      const neutered = annalsSrc.replace('return s || (n.m || n.g ? "" : "年月未记");', 'return s || "年月未记";');
+      ok(neutered !== annalsSrc, "年月未记那句变异靶在场");
+      const wN = annalsEnv(neutered, realFiles);
+      await wN.ChronAnnals.open(dl);
+      const nn = wN.ChronAnnals.nodesIn(wN.ChronAnnals.rangeShown()[0], wN.ChronAnnals.rangeShown()[1]);
+      const lies = nn.filter((n) => (n.m || n.g) && wN.ChronAnnals.whenLabel(n) === "年月未记");
+      ok(lies.length > 30, `阉掉「有锚就闭嘴」后 ${lies.length} 条被谎称「年月未记」——上一条不是空话`);
+    }
+  }
+
+  /* ---------- D. 改元之年：年头列出这一年用过的全部年号 ---------- */
+  {
+    const es = [...new Set(AB.atYear(1457).map((n) => n.e).filter(Boolean))];
+    ok(es.length >= 2, `1457 在真数据上确实改过元（${es.join("／")}）——下面的判据才有射程`);
+    const head = AB.yearHead(1457, AB.atYear(1457));
+    eq(es.filter((e) => !head.includes(e)).join(","), "",
+       "改元之年的头一行把每个年号都列出来（只挂第一任＝给后半年盖了前一任的年号）");
+    const neutered = annalsSrc.replace("if (n.e && es.indexOf(n.e) < 0) es.push(n.e);",
+      "if (n.e && !es.length) es.push(n.e);");
+    ok(neutered !== annalsSrc, "年号去重那句变异靶在场");
+    const wN = annalsEnv(neutered, realFiles);
+    await wN.ChronAnnals.open(dl);
+    const headN = wN.ChronAnnals.yearHead(1457, wN.ChronAnnals.atYear(1457));
+    ok(es.slice(1).some((e) => !headN.includes(e)),
+       `阉成「只取第一条」后头一行只剩 ${headN.replace(/<[^>]*>/g, " ").trim()} —— 上一条能红`);
+  }
+
+  /* ---------- E. 界面动作与地址栏：清除留年份、翻页改年份 ---------- */
+  {
+    const filters = winA.__panel.querySelector("#an-filters");
+    ok(/an-pill/.test(filters.innerHTML), `筛选条画出来了（实得长度 ${filters.innerHTML.length}：没画=下面的清除按钮判据在空转）`);
+    eq(/data-an-clear/.test(filters.innerHTML), false, "没筛任何东西时不给「清除筛选」（无东西可清却摆一颗按钮=装饰）");
+    fireClick(winA.__panel, { "data-an-section": "ji" });
+    ok(/data-an-clear/.test(filters.innerHTML),
+       "按了一个部类、结果非空时筛选条上就有「清除筛选」（旧写法只在「只看某卷」和空结果两处放，读者只能一颗颗点回去）");
+    fireClick(winA.__panel, { "data-an-juan": "25" });
+    await tick();
+    ok(/只看卷25/.test(filters.innerHTML), "点卷次后筛选条说明当前只看这一卷");
+    fireClick(winA.__panel, { "data-an-clear": "1" });
+    eq(winA.__gos[winA.__gos.length - 1], "#/annals?y=1449",
+       `清除筛选后地址栏只交掉筛选、留住年份（实发 ${winA.__gos[winA.__gos.length - 1]}：抹掉 ?y= 等于把读者刚钉住的那一年也清掉）`);
+    fireClick(winA.__panel, { "data-an-page": "1500" });
+    await tick();
+    eq(winA.__gos[winA.__gos.length - 1], "#/annals?y=1500",
+       "翻页同时改地址栏（只改屏不改地址=读者发出去的链接和发出去的那一屏对不上）");
+    ok(winA.__chunksReq().length > 2, `翻到 1500 后按新窗口补了片（累计 ${winA.__chunksReq().length} 片）`);
+    fireClick(winA.__panel, { "data-an-year": "1450" });
+    await tick();
+    eq(winA.__flies[winA.__flies.length - 1], 1450,
+       "点年头把时间轴也带到这一年（只动抽屉不动轴=屏幕上同时存在两个「现在在哪年」）");
+  }
+
+  /* ---------- F. 「随时间轴区间」：勾上就得真的跟着走 ---------- */
+  {
+    const st = fakeState(1280, 1319);
+    const winF = annalsEnv(annalsSrc, FIX.files, st);
+    await winF.ChronAnnals.open({});
+    const before = winF.__chunksReq().length;
+    const follow = winF.__panel.querySelector("#an-follow");
+    ok((follow.on.change || []).length >= 1, "「随时间轴区间」这颗勾选框有人接（没接=屏幕上那句话是装饰）");
+    st.patch({ range: { from: 1400, to: 1439 } });
+    await tick();
+    ok(winF.__chunksReq().length > before,
+       `区间一动就重新对账：${before} → ${winF.__chunksReq().length} 片（抽屉不订阅 state 时，这句承诺只在点开那一刻成立）`);
+    const mid = winF.__chunksReq().length;
+    follow.checked = false;
+    follow.on.change[0].call(follow);
+    st.patch({ range: { from: 1280, to: 1300 } });
+    eq(winF.__chunksReq().length, mid, `取消勾选后不再跟着区间跑（仍为 ${mid} 片：勾了不该停、不勾不该跑，两头都得验）`);
+  }
+
+  /* ---------- G. 详情里的「《明史》记这一年」：逐字、不截断、说清还有多少 ---------- */
+  {
+    const all = AB.atYear(1449);
+    ok(all.length > 3, `1449 有 ${all.length} 条原文（不足 3 条则下面的「还有 N 条」在空转）`);
+    const html = AB.block({ track: "cn", year: 1449 });
+    eq((html.match(/class="an-node/g) || []).length, 3, "详情块只铺 3 条（整年灌进详情会把抽屉挤成一堵墙）");
+    eq(all.slice(0, 3).every((n) => html.includes(esc2(n.q))), true,
+       "块里的原文逐字出现，一条都没被截短（这层卖的就是「史书到底怎么写」）");
+    ok(html.includes("还有 " + (all.length - 3) + " 条"), `块里说明还剩 ${all.length - 3} 条并给出入口`);
+    ok(html.includes("史文如此写，不等于事必如此"), "块尾保留「史文如此写」这句限定");
+    ok(html.includes("本纪系年") && html.includes("句内自标"), "两种系年来源在块里给了不同写法");
+    const wait = AB.block({ track: "cn", year: 1300 });
+    ok(/正在载入/.test(wait) && !/没有/.test(wait), "没载入的年说「正在载入」，不说「这一年没有原文」（后者是假话）");
+    eq(AB.block({ track: "world", year: 1449 }), "", "世界轨不铺明史原文");
+  }
+
+  /* ---------- H. 「铺成长河」：原文不是条目，两套筛选量的是它身上没有的东西 ---------- */
+  {
+    const items = AB.nodesIn(limB[0], limB[1]);
+    function riverEnv(src, ChronAnnals) {
+      const created = [];
+      const doc = fakeEl();
+      doc.createElement = () => { const e = fakeEl(); created.push(e); return e; };
+      doc.body = fakeEl();
+      doc.head = { appendChild() {}, removeChild() {} };
+      const win = {
+        addEventListener() {}, removeEventListener() {}, dispatchEvent() {},
+        console: { error() {}, log() {}, warn() {} },
+        ChronLoader: { allEvents: () => [], eventById: () => null, stats: () => ({ total: 29, loadedChunks: 29 }) },
+        ChronTime: T, __CHRONICLE_META: M, ChronProv: window.ChronProv,
+        ChronState: {
+          get: () => Object.assign({}, S.get(), { range: { from: 1272, to: 1644 } }),
+          passesFilter: (e) => S.passesFilter(e), subscribe() {},
+        },
+        ChronAnnals,
+      };
+      win.window = win;
+      new Function("window", "document", "location", "Event", "CustomEvent",
+        "ChronAnnals", "ChronSearch", src)(
+        win, doc, { hash: "#/river" }, function (t) { this.type = t; },
+        function (t, o) { this.type = t; Object.assign(this, o || {}); },
+        ChronAnnals, { run: () => [] });
+      win.__created = created;
+      return win;
+    }
+    const winH = riverEnv(riverSrc, AB);
+    winH.ChronRiver.open({ annals: items, label: "《明史》编年 " + limB[0] + "—" + limB[1] });
+    const root = winH.__created[0];
+    const body = root.querySelector("#rv-body");
+    const rows = (body.innerHTML.match(/rv-an/g) || []).length;
+    eq(rows, items.length,
+       `编年原文铺进长河后 ${items.length} 条全在（实得 ${rows} 行：带着两套控件进来曾被筛成 0 行，去重写成 e.id 则只剩 1 行）`);
+    eq(root.querySelector(".rv-chk").style.display, "none", "长河里的编年源收起「仅当前筛选」");
+    eq(root.querySelector("#rv-sort").style.display, "none", "长河里的编年源收起「按重要度」（原文没有权重）");
+    eq(root.querySelector("#rv-stats").innerHTML.includes("逐字引自底本"), true, "长河头部对原文源说「逐字引自底本」，不套本站的溯源等级");
+    eq(root.querySelector("#rv-stats").innerHTML.includes("溯源："), false, "编年源不显示本站的溯源构成");
+    {
+      const neutered = riverSrc.replace("onlyFilter = !an && !(source.ids || source.query);",
+        "onlyFilter = !(source.ids || source.query);");
+      ok(neutered !== riverSrc, "长河 onlyFilter 那句变异靶在场");
+      const wN = riverEnv(neutered, AB);
+      wN.ChronRiver.open({ annals: items, label: "x" });
+      const r2 = (wN.__created[0].querySelector("#rv-body").innerHTML.match(/rv-an/g) || []).length;
+      eq(r2, 0, `带着两套控件回来（旧写法）实测剩 ${r2} 行——上面那条「全在」是真门`);
+    }
+  }
+
+  /* ---------- I. 路由切走时抽屉真的收起（逐分支钉，不立全量互斥规则） ----------
+   * 全站没有「谁打开就把所有层关掉」这条规则：详情块 z40 和抽屉 z47 本可以同时在场，
+   * 拿全量配对去判会把合理写法一并判红（实测 199 处）。所以这里只跑真 router + 真 annals
+   * 在同一窗口沙箱里，按分支逐条判 panel 的 hidden——判的是面板，不是源码里那行字有没有。 */
+  {
+    const routerSrc = fs.readFileSync(path.join(ROOT, "js/router.js"), "utf8");
+    const AN_CLOSE = "if (window.ChronAnnals) ChronAnnals.close();";
+    /* 兜底分支是 apply() 末尾那段裸 else；先数清它在全文件出现几次，
+     * 多一处（比如新加了一条 else 链）下面就会去审错分支，那比不审更糟。 */
+    const elseN = routerSrc.split("} else {").length - 1;
+    eq(elseN, 1, `apply() 的裸 else 在全文件只有一处（实有 ${elseN} 处：多处时兜底分支定位不到，判据会去看别的分支）`);
+
+    const spanOf = (src, at) => {
+      const open = src.indexOf("{", at);
+      let i = open, depth = 0;
+      for (; i < src.length; i++) {
+        if (src[i] === "{") depth++;
+        else if (src[i] === "}") { depth--; if (!depth) break; }
+      }
+      return [open + 1, i];
+    };
+    const applySpan = spanOf(routerSrc, routerSrc.indexOf("function apply("));
+    /* 定位锚退化到 -1 时，spanOf 会一路退回整个 IIFE 的函数体——那里照样含有那行收编年，
+     * 「分支里写了这一行」的判据于是恒绿。所以锚必须先落在 apply() 以内，再看内容。 */
+    const atOf = (src, name) => name === "timeline"
+      ? src.lastIndexOf("} else {")
+      : src.indexOf('r.name === "' + name + '"');
+
+    function winWithRouter(src) {
+      const w = annalsEnv(annalsSrc, FIX.files);
+      const loc = { hash: "#/timeline" };
+      /* handle() 进门先问时间轴就位了没（没就位就 pending 返回，什么都不做） */
+      w.ChronTimeline.viewport = [1272, 1644];
+      /* 浏览器里 window.ChronX 同时是裸名 ChronX，沙箱没有这层自动全局。名单按这份源码现取，
+       * 不手写：手写表少一个名（或 router 打错一个模块名）就是 ReferenceError，
+       * 崩掉的正是整份报告——别处点名缺陷的那几行 ✗ 文案会跟着一起看不见，
+       * test-gates-meta 的哨兵于是只看到 rc=1 却认不出是谁报的红。
+       * 「模块名归不到文件」这一类由上面 parse()/apply() 对账那条门专门点名，不归这里管。 */
+      const names = [...new Set([...src.matchAll(/\b(?:Chron[A-Z][A-Za-z]*)\b/g)])]
+        .map((m) => m[0]).filter((n) => n !== "ChronAnnals" && n !== "ChronTimeline");
+      names.forEach((n) => {
+        if (!w[n]) w[n] = { open() {}, close() {}, render() {}, flash() {} };
+      });
+      new Function(...["window", "document", "location", "history", ...names, "ChronAnnals", "ChronTimeline", src])(
+        w, fakeEl(), loc, { replaceState(h, t, url) { loc.hash = url; } },
+        ...names.map((n) => w[n]), w.ChronAnnals, w.ChronTimeline);
+      w.__loc = loc;
+      return w;
+    }
+    /* 路由跑挂了必须报成一条红，不能让异常把整份报告带走。 */
+    function goRoute(w, hash) {
+      w.__loc.hash = hash;
+      try { w.ChronRouter.handle(); return ""; }
+      catch (e) { return String((e && e.constructor && e.constructor.name) || "Error") + ": " + (e && e.message); }
+    }
+
+    for (const name of ["timeline", "today", "chain", "story"]) {
+      const hash = "#/" + name;
+      const at = atOf(routerSrc, name);
+      ok(at > applySpan[0] && at < applySpan[1],
+         `${hash} 那一支的定位锚在 apply() 里取得到（实得 at=${at}，apply() 区间 ${applySpan.join("—")}：` +
+         `锚一改写法（引号、空格）这里就退化，退化了还判绿就是在审整个文件的别处）`);
+      const [start, end] = spanOf(routerSrc, at);
+      const body = routerSrc.slice(start, end);
+      ok(start > applySpan[0] && end < applySpan[1] && body.length > 60,
+         `函数体取到的是这一支自己（长度 ${body.length}，落在 apply() 以内：取空或取大=下面几条全在空转）`);
+      ok(body.includes(AN_CLOSE),
+         `变异靶在场：${hash} 这一支写了收编年（没写就不是漏收，是这层本不归它收，下面两条无意义）`);
+      const w = winWithRouter(routerSrc);
+      await w.ChronAnnals.open({ year: 1449 });
+      eq(w.ChronAnnals.isOpen(), true, `动手前抽屉是开着的（前提不成立则下一条的「收起了」是白捡的）`);
+      eq(goRoute(w, hash), "", `${hash} 这一支的 handle() 跑得不抛（抛了的话「抽屉收起了」可能是崩出来的，不是收出来的）`);
+      eq(w.ChronAnnals.isOpen(), false,
+         `路由切到 ${hash} 后编年抽屉收起（同层的抽屉叠着开，读者只剩最上面那颗点得动）`);
+      /* 阉的是 body 里这一支的第一处，重组回原位置——不用 indexOf 回算全文件下标，
+       * 那样一旦这一支没有靶就会算出负数下标、切坏源码，报出来是语法崩而不是红。 */
+      const cut = routerSrc.slice(0, start) + body.replace(AN_CLOSE, "") + routerSrc.slice(end);
+      ok(cut.length === routerSrc.length - AN_CLOSE.length,
+         `阉掉的只是一支里那一行（少 ${routerSrc.length - cut.length} 字节，应为 ${AN_CLOSE.length}：多删说明删到了别处）`);
+      const wN = winWithRouter(cut);
+      await wN.ChronAnnals.open({ year: 1449 });
+      eq(wN.ChronAnnals.isOpen(), true, "阉过的副本里抽屉也照样开得起来（开不起来则下面那条「还开着」是假的）");
+      eq(goRoute(wN, hash), "", `阉过的副本 ${hash} 这一支也跑得不抛（抛了就不是「没收到」，是整支没跑完）`);
+      eq(wN.ChronAnnals.isOpen(), true,
+         `只删 ${hash} 这一支的那一行，抽屉就还开着——上一条能红，也证明收它的是这一支而不是别支顺手做的`);
+    }
+  }
+}
+
 /* ============ CI 与本地发布面的门清单 1:1（#54） ============
  * CI 是贡献者 PR 的第一道闸。它比本地少跑一道门，缺陷就在评论里判绿、在维护者机器上判红；
  * 而那道门是哪一天被顺手删掉的，没有人会知道。所以两边的清单当同一件事核对。 */

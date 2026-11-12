@@ -1,11 +1,11 @@
 /* manifest.js | 自动生成，请勿手工编辑
  * 重新生成: node tools/gen-manifest.mjs
- * 生成时间: 2026-11-09 12:59:31
- * 分片数 29 | 事件总数 4991
+ * 生成时间: 2026-11-12 14:15:07
+ * 分片数 29 | 事件总数 5003
  */
 window.__CHRONICLE_MANIFEST = {
-  generatedAt: "2026-11-09T12:59:31.233Z",
-  total: 4991,
+  generatedAt: "2026-11-12T14:15:07.677Z",
+  total: 5003,
   chunks: [
     { id: "cn-01", file: "cn/cn-01.js", track: "cn", count: 130, yearFrom: -3000, yearTo: -842 },
     { id: "wd-01", file: "wd/wd-01.js", track: "world", count: 273, yearFrom: -3000, yearTo: -479 },
@@ -20,7 +20,7 @@ window.__CHRONICLE_MANIFEST = {
     { id: "cn-08", file: "cn/cn-08.js", track: "cn", count: 223, yearFrom: 73, yearTo: 588 },
     { id: "wd-03", file: "wd/wd-03.js", track: "world", count: 341, yearFrom: 506, yearTo: 1498 },
     { id: "cn-04", file: "cn/cn-04.js", track: "cn", count: 175, yearFrom: 589, yearTo: 1278 },
-    { id: "cn-05", file: "cn/cn-05.js", track: "cn", count: 258, yearFrom: 1276, yearTo: 1643 },
+    { id: "cn-05", file: "cn/cn-05.js", track: "cn", count: 270, yearFrom: 1276, yearTo: 1643 },
     { id: "wd-04", file: "wd/wd-04.js", track: "world", count: 179, yearFrom: 1500, yearTo: 1799 },
     { id: "cn-12", file: "cn/cn-12.js", track: "cn", count: 137, yearFrom: 1644, yearTo: 1839 },
     { id: "wd-05", file: "wd/wd-05.js", track: "world", count: 235, yearFrom: 1800, yearTo: 1905 },

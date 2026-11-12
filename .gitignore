@@ -15,3 +15,7 @@ data/dup-plan.json
 
 # 逐批次的一次性取证/编辑脚本（点名绝对路径与 /tmp 缓存，不构成任何一道门）
 tools/.*.mjs
+
+# 明史编年层的底本缓存与转写中间产物。可再生（fetch + normalize），
+# 且体量按百 MB 计，不进版本库；进版本库的是它们派生出的 data/annals/ 分片与 ledger 摘要。
+build/
